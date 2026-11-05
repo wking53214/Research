@@ -1,0 +1,10 @@
+{
+ "captured_at": "2026-11-05T16:41:15Z",
+ "files": {
+  "contents_README_at_4ab218d0c4c3.json": "0d378c6172c86870a655e02cf67bc6b37e79fd070837bab1707de4a25a801b29",
+  "contents_missing_404.json": "09171f6c5a2a21d55874fddd58921bec9140394ca47ba4ca999d0231d90a8b84",
+  "ref_heads_main.json": "bfe251c0df50dff2e103e743be95964c34ef2273326187015488fe60cbe30b84",
+  "repo_metadata.json": "f38713afc849e766036deaea0d42f6289586b784b7a19d20d60c41595f5c78a5"
+ },
+ "source": "live GET to api.github.com, unauthenticated, via research_lab.sources.github.urllib_transport"
+}
