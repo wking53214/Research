@@ -1,0 +1,17 @@
+{
+ "body": "{\"ref\":\"refs/heads/main\",\"node_id\":\"REF_kwDOVKFb7a9yZWZzL2hlYWRzL21haW4\",\"url\":\"https://api.github.com/repos/wking53214/WATCHER_MCU/git/refs/heads/main\",\"object\":{\"sha\":\"4ab218d0c4c31e78bc0b9359f6c09fa32c87babd\",\"type\":\"commit\",\"url\":\"https://api.github.com/repos/wking53214/WATCHER_MCU/git/commits/4ab218d0c4c31e78bc0b9359f6c09fa32c87babd\"}}",
+ "body_sha256": "6f6e3516dc852725e6b07de10a5853d8241093b9c2fc0d9d91a467f4fe95b07d",
+ "captured_at": "2026-11-05T16:41:15Z",
+ "headers": {
+  "cache-control": "private, max-age=60, s-maxage=60",
+  "content-type": "application/json; charset=utf-8",
+  "etag": "\"a173b7167f89530fa25355bfbf74a768468fc39de6d742725ac65ebad7a3f7cb\"",
+  "last-modified": "Wed, 04 Nov 2026 22:46:24 GMT",
+  "x-github-api-version-selected": "2022-11-28",
+  "x-github-media-type": "github.v3; format=json",
+  "x-ratelimit-limit": "15000",
+  "x-ratelimit-remaining": "14840"
+ },
+ "status": 200,
+ "url": "https://api.github.com/repos/wking53214/WATCHER_MCU/git/ref/heads/main"
+}

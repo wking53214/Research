@@ -1,0 +1,14 @@
+{
+ "body": "{\"message\":\"Not Found\",\"documentation_url\":\"https://docs.github.com/rest/repos/contents#get-repository-content\",\"status\":\"404\"}",
+ "body_sha256": "e45906ce02e79f16fb87a838d86bb4e497e37a9591f97608fa013bbcd8b9cbc2",
+ "captured_at": "2026-11-05T16:41:15Z",
+ "headers": {
+  "content-type": "application/json; charset=utf-8",
+  "x-github-api-version-selected": "2022-11-28",
+  "x-github-media-type": "github.v3; format=json",
+  "x-ratelimit-limit": "15000",
+  "x-ratelimit-remaining": "14837"
+ },
+ "status": 404,
+ "url": "https://api.github.com/repos/wking53214/WATCHER_MCU/contents/this-path-does-not-exist.md?ref=4ab218d0c4c31e78bc0b9359f6c09fa32c87babd"
+}
