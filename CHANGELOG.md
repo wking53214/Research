@@ -154,6 +154,36 @@ Increment 1, foundation. Built in a working tree; the owner decides what to comm
 - Docs: SECURITY.md (challenges and the noise note), ARCHITECTURE.md, KNOWN_LIMITATIONS.md
   (7d), README (rules, modules, CLI, acceptance row 7 evidence text; no status moved).
 
+### Added in increment 2, round 2a (sources; same version by the owner's instruction)
+
+- `research_lab.sources`: `SourcePort`, `SourceDocument`, `SourceUnavailable` (keeps the
+  HTTP status), `SourceRefused`, `SourceFormatError` (keeps the raw response digest),
+  `SourceTooLarge`; `LocalFileSource` (explicit allowed roots, realpath confinement,
+  O_NOFOLLOW and O_NONBLOCK open, fstat regular-file check, size cap); `GitHubSource`
+  (read-only GET to https://api.github.com only, scheme and host re-checked on the final
+  URL, no redirects, timeout, size cap, strict JSON and base64, declared size and git blob
+  sha recomputed, ref resolved to a commit, injected transport, `urllib_transport`,
+  `FixtureTransport`, optional `token_env` never recorded); `BlobStore` (content-addressed,
+  write-once, atomic, verify-on-read, per tenant, size cap).
+- `Lab.record_source` (EXTERNAL or SYSTEM actor only; idempotent for identical content;
+  changed content supersedes the old source with a `change` block), `Lab.verify_sources`,
+  `SourceRecording`, `SourcesCheck`; `Lab.create` and `open` take `blob_root`.
+  `Graph.sources`, `source_by_locator`, `sources_cited_by`, `shared_sources`. Edge table gains
+  FINDING CITES SOURCE and HYPOTHESIS CITES SOURCE.
+- CLI: `add source --kind github --repo --path [--ref] [--github-fixtures DIR]` and
+  `add source --kind file --path --allow-root ...`; `--blob-root` on every command (default
+  `<db>.blobs`); `verify` output gains a `sources` key without changing existing keys.
+- `examples/source_demo.py` (offline from fixtures by default, `--live` for the network).
+- Fixtures: four real GitHub responses captured live on 2026-11-05 under
+  `tests/fixtures/github` with a SHA-256 manifest verified by a test.
+- Tests: `tests/test_sources_local.py` (8), `tests/test_sources_github.py` (31 cases),
+  `tests/test_blobs.py` (7), `tests/test_record_source.py` (12),
+  `tests/test_example_sources.py` (1); `tests/test_repo_hygiene.py` now walks subpackages
+  and adds the AI-provider and single-host guards. No pre-existing test changed.
+- Docs: README (modules, quickstart, rules, acceptance rows 4 and 5, both still partially
+  implemented), ARCHITECTURE (ports and adapters), SECURITY (sources), EXTERNAL_DEPENDENCIES
+  (GitHub endpoints, rate limits, unavailability), KNOWN_LIMITATIONS (17).
+
 ### Test record for this version
 
 See the builder's report for the exact command, counts and exit status (EXECUTED on Python

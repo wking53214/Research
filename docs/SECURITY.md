@@ -139,6 +139,39 @@ control. An actor can clutter the governance view of findings with open challeng
 cannot change a finding. No rate limit exists in increment 1; a future increment may cap
 open challenges per actor.
 
+## Sources (increment 2a): what a source is, and what it is not
+
+A source is bytes the lab preserved, with where and when it got them. It is not evidence,
+not verified knowledge, and its content is untrusted data: nothing in the lab executes or
+interprets it. The native evidence owners (TIE, HERALD, CCC) keep their role; `BlobStore` is
+a reproducibility cache so a run can be repeated against exactly the input it saw.
+
+Host allowlist (SSRF-style controls, EXECUTED in tests/test_sources_github.py): `GitHubSource`
+builds every URL from a constant base and then re-checks scheme `https`, host
+`api.github.com`, default port and no userinfo on the final URL, independently of the
+constant; redirects are never followed (a 3xx is refused with its target named); a timeout
+and a response size cap apply; JSON must be an object with the expected fields and types,
+base64 is decoded with validation, the declared size and the git blob sha are recomputed
+from the decoded bytes. Any deviation is `SourceFormatError` with the raw response digest, so
+the exact bytes can be examined. HTTP errors and rate limits become `SourceUnavailable` with
+the status preserved. A token is read only from an environment variable the caller names in
+`token_env`, sent only to the allowlisted host, and never stored, logged or recorded. The
+User-Agent is a generic product string.
+
+Path confinement (EXECUTED in tests/test_sources_local.py): `LocalFileSource` has no default
+root. A path is resolved with realpath and must be inside a configured root; the open uses
+O_NOFOLLOW and O_NONBLOCK and `fstat` must report a regular file, so directories, FIFOs,
+devices and sockets are refused without being read and a FIFO cannot block the process.
+Known gap: the resolved path can be swapped between realpath and open (TOCTOU) by someone
+who can write inside the root; the last component is protected by O_NOFOLLOW, parents are
+not.
+
+Blob store: digests are validated before any path is built (no traversal through a digest),
+one directory per tenant with a validated tenant name, atomic write, read-only mode, verify
+on every read; a blob that no longer hashes to its name is refused and `verify_sources`
+reports it. Anyone with file access can still delete or modify blobs; that is detected,
+not prevented.
+
 ## What verify() does not detect
 
 * **Full rewrite.** An attacker who rewrites the whole chain from genesis with fresh hashes

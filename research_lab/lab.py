@@ -35,10 +35,35 @@ from .lifecycle import (
     uses_challenge_statuses,
     uses_finding_stages,
 )
-from .records import Actor, EvidenceLabel, Kind, Record
+from .records import Actor, ActorKind, EvidenceLabel, Kind, Record, RecordError
+from .sources.base import SourceDocument, SourceRefused
+from .sources.blobs import BlobStore
 from .store import Anchor, Event, EventStore, IntegrityError, Principal, Signer, VerifyResult
 
 EdgeSpec = tuple[EdgeType | str, str]
+SOURCE_ACTOR_KINDS = frozenset({ActorKind.EXTERNAL, ActorKind.SYSTEM})
+
+
+@dataclass(frozen=True)
+class SourceRecording:
+    """What Lab.record_source did. created is False when an identical fetch already had a
+    record (idempotent); changed is True when the same locator now has different content, in
+    which case record is the replacement and previous_id the superseded source."""
+
+    record: Record
+    created: bool
+    changed: bool
+    previous_id: str | None
+
+
+@dataclass
+class SourcesCheck:
+    ok: bool
+    checked: int
+    problems: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"ok": self.ok, "checked": self.checked, "problems": list(self.problems)}
 
 
 @dataclass(frozen=True)
@@ -90,7 +115,7 @@ def verify_store(store: EventStore, require_signed: bool = False, live_graph: Gr
 
 
 class Lab:
-    def __init__(self, store: EventStore, clock: Clock, verify: bool = True) -> None:
+    def __init__(self, store: EventStore, clock: Clock, verify: bool = True, blobs: BlobStore | None = None) -> None:
         """Wrap a store. By default the chain is verified before any of it is trusted; the
         replay that builds the graph validates every event against the lab's rules and raises
         PolicyViolation on the first event that breaks them, so the store is refused.
@@ -101,6 +126,9 @@ class Lab:
         A Lab is bound to the thread that opened it (ThreadAffinityError otherwise)."""
         self.store = store
         self.clock = clock
+        if blobs is not None and blobs.tenant != store.tenant:
+            raise SourceRefused(f"blob store belongs to tenant {blobs.tenant!r}, not {store.tenant!r}")
+        self.blobs = blobs
         if verify:
             result = store.verify()
             if not result.ok:
@@ -121,9 +149,11 @@ class Lab:
         principals: Sequence[str] | None = None,
         signer: Signer | None = None,
         anchor: Anchor | None = None,
+        blob_root: str | None = None,
     ) -> "Lab":
         store = EventStore.create(path, tenant, principal, governance_issuers, principals, signer, anchor)
-        return cls(store, clock)
+        blobs = BlobStore(blob_root, tenant) if blob_root is not None else None
+        return cls(store, clock, blobs=blobs)
 
     @classmethod
     def open(
@@ -135,10 +165,13 @@ class Lab:
         signer: Signer | None = None,
         anchor: Anchor | None = None,
         verify: bool = True,
+        blob_root: str | None = None,
     ) -> "Lab":
         """Open an existing store. verify=False skips chain verification; only tools that
-        report on a broken store should use it."""
-        return cls(EventStore.open(path, tenant, principal, signer, anchor), clock, verify=verify)
+        report on a broken store should use it. blob_root enables record_source and
+        verify_sources (one directory per tenant under it)."""
+        blobs = BlobStore(blob_root, tenant) if blob_root is not None else None
+        return cls(EventStore.open(path, tenant, principal, signer, anchor), clock, verify=verify, blobs=blobs)
 
     def close(self) -> None:
         self.store.close()
@@ -325,6 +358,60 @@ class Lab:
         when the reason is empty or no evidence reference is given."""
         body = {**(extra or {}), "reason": reason}
         return self.add(Kind.CHALLENGE, body, filer, edges=[(EdgeType.CHALLENGES, target_id)], provenance=evidence)
+
+    def record_source(self, document: SourceDocument, actor: Actor, edges: Sequence[EdgeSpec] = ()) -> SourceRecording:
+        """Preserve a fetched document as a source record plus a blob.
+
+        The actor must be EXTERNAL or SYSTEM: a source is an input the lab preserved, never
+        EXECUTED evidence by itself. Re-recording the same locator with identical content is
+        idempotent (no new event). The same locator with different content creates a new
+        source record that SUPERSEDES the old one and carries a "change" block, so a
+        reproducibility check can see that the input moved.
+        """
+        if actor.kind not in SOURCE_ACTOR_KINDS:
+            raise RecordError("a source is recorded by an EXTERNAL or SYSTEM actor; it is never evidence by itself")
+        if self.blobs is None:
+            raise SourceRefused("this Lab has no blob store; open it with blob_root to record sources")
+        existing = self.graph.source_by_locator(document.locator)
+        if existing is not None and existing.latest.body.get("content_digest") == document.content_digest:
+            self.blobs.write(document.content)  # no-op if present, repairs a missing blob
+            return SourceRecording(existing.latest, created=False, changed=False, previous_id=None)
+        blob_digest = self.blobs.write(document.content)
+        body = document.record_body()
+        body["blob_digest"] = blob_digest
+        if existing is None:
+            record = self.add(Kind.SOURCE, body, actor, edges=edges)
+            return SourceRecording(record, created=True, changed=False, previous_id=None)
+        body["change"] = {
+            "type": "source_changed",
+            "previous": existing.entity_id,
+            "previous_content_digest": existing.latest.body.get("content_digest"),
+        }
+        done = self.supersede(existing.entity_id, body, actor, "source content changed at re-fetch", edges=edges)
+        return SourceRecording(done.replacement, created=True, changed=True, previous_id=existing.entity_id)
+
+    def verify_sources(self) -> SourcesCheck:
+        """Every recorded source's blob must exist and hash to its digest. Detects an input
+        modified after preservation. Separate from verify(): the log can be intact while a
+        cached input is not."""
+        problems: list[str] = []
+        checked = 0
+        for node in self.graph.sources():
+            checked += 1
+            body = node.latest.body
+            digest = body.get("blob_digest")
+            if not isinstance(digest, str):
+                problems.append(f"{node.entity_id}: no blob digest recorded")
+                continue
+            if body.get("content_digest") != digest:
+                problems.append(f"{node.entity_id}: blob digest differs from content digest")
+            if self.blobs is None:
+                problems.append(f"{node.entity_id}: no blob store configured to check blob {digest}")
+                continue
+            status = self.blobs.status(digest)
+            if status != "ok":
+                problems.append(f"{node.entity_id}: blob {digest} is {status}")
+        return SourcesCheck(not problems, checked, problems)
 
     def supersede(
         self,

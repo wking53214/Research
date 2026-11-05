@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import Sequence
 
@@ -19,9 +20,10 @@ from .graph import EdgeType, GraphError
 from .lab import Lab, verify_store
 from .lifecycle import LifecycleError
 from .records import Actor, ActorKind, EvidenceLabel, Kind, RecordError
+from .sources import FixtureTransport, GitHubSource, LocalFileSource, SourceError, urllib_transport
 from .store import EventStore, Principal, StoreError
 
-ADDABLE = ("objective", "question", "hypothesis", "evidence", "challenge")
+ADDABLE = ("objective", "question", "hypothesis", "evidence", "challenge", "source")
 
 
 def _common(parser: argparse.ArgumentParser) -> None:
@@ -29,6 +31,7 @@ def _common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tenant", required=True, help="tenant the store belongs to")
     parser.add_argument("--principal", required=True, help="principal id (a claim; checked against genesis)")
     parser.add_argument("--at", default=None, help="timestamp YYYY-MM-DDTHH:MM:SSZ; default is the wall clock")
+    parser.add_argument("--blob-root", default=None, help="blob store directory for sources; default is <db>.blobs")
 
 
 def _actor_args(parser: argparse.ArgumentParser) -> None:
@@ -62,6 +65,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_add.add_argument("--label", default=None, choices=[label.value for label in EvidenceLabel], help="evidence label")
     p_add.add_argument("--target", default=None, help="finding or hypothesis id a challenge is filed against")
     p_add.add_argument("--evidence", action="append", default=[], help="evidence reference for a challenge (repeatable)")
+    p_add.add_argument("--kind", dest="source_kind", default=None, choices=["github", "file"], help="source adapter (source)")
+    p_add.add_argument("--repo", default=None, help="owner/name of a GitHub repository (source --kind github)")
+    p_add.add_argument("--path", default=None, help="file path in the repository, or absolute local path (source)")
+    p_add.add_argument("--ref", default=None, help="branch, tag or commit sha; default is the repository's default branch")
+    p_add.add_argument("--allow-root", action="append", default=[], help="allowed root for local files (repeatable, required for --kind file)")
+    p_add.add_argument(
+        "--github-fixtures",
+        default=None,
+        help="offline mode: serve GitHub responses from this directory of recorded fixtures instead of the network",
+    )
 
     p_tr = sub.add_parser("transition", help="move an entity to a new status (lab transitions only)")
     _common(p_tr)
@@ -118,6 +131,8 @@ def _add(lab: Lab, args: argparse.Namespace) -> dict:
             raise RecordError("a hypothesis needs --text and --answers")
         body = {"text": args.text}
         edges.append((EdgeType.ANSWERS, args.answers))
+    elif kind is Kind.SOURCE:
+        return _add_source(lab, args, actor)
     elif kind is Kind.CHALLENGE:
         if not args.text or not args.target or not args.evidence:
             raise RecordError("a challenge needs --text (the reason), --target and at least one --evidence")
@@ -138,6 +153,40 @@ def _add(lab: Lab, args: argparse.Namespace) -> dict:
             edges.append((EdgeType.CITES, args.cites))
     record = lab.add(kind, body, actor, edges=edges, evidence_label=label)
     return {"record": record.to_dict(), "edges": [{"edge": edge.value, "to": to} for edge, to in edges]}
+
+
+def _add_source(lab: Lab, args: argparse.Namespace, actor: Actor) -> dict:
+    if args.source_kind == "github":
+        if not args.repo or "/" not in args.repo or not args.path:
+            raise RecordError("a github source needs --repo owner/name and --path")
+        owner, _, name = args.repo.partition("/")
+        transport = FixtureTransport(args.github_fixtures) if args.github_fixtures else urllib_transport
+        document = GitHubSource(transport, lab.clock).fetch_file(owner, name, args.path, args.ref)
+    elif args.source_kind == "file":
+        if not args.path or not args.allow_root:
+            raise RecordError("a file source needs --path and at least one --allow-root")
+        document = LocalFileSource(args.allow_root, lab.clock).fetch(args.path)
+    else:
+        raise RecordError("a source needs --kind github or --kind file")
+    done = lab.record_source(document, actor)
+    return {
+        "record": done.record.to_dict(),
+        "created": done.created,
+        "changed": done.changed,
+        "previous": done.previous_id,
+        "blob_digest": done.record.body["blob_digest"],
+        "offline_fixtures": bool(args.source_kind == "github" and args.github_fixtures),
+    }
+
+
+def _blob_root(args: argparse.Namespace) -> str | None:
+    """The blob root given, else <db>.blobs when it exists or is about to be created."""
+    if args.blob_root:
+        return args.blob_root
+    default = os.path.abspath(args.db + ".blobs")
+    if os.path.isdir(default) or (args.command == "add" and args.kind == "source"):
+        return default
+    return None
 
 
 def _show(lab: Lab, args: argparse.Namespace) -> dict:
@@ -174,9 +223,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             # rather than refused at open. verify_store adds the policy replay.
             with EventStore.open(args.db, args.tenant, _principal(args)) as store:
                 result = verify_store(store)
-            _emit(result.to_dict())
-            return 0 if result.ok else 1
-        with Lab.open(args.db, args.tenant, _principal(args), _clock(args)) as lab:
+            output = result.to_dict()
+            blob_root = _blob_root(args)
+            sources_ok = True
+            if result.ok and blob_root is not None:
+                with Lab.open(args.db, args.tenant, _principal(args), _clock(args), blob_root=blob_root) as lab:
+                    sources = lab.verify_sources()
+                output["sources"] = sources.to_dict()
+                sources_ok = sources.ok
+            elif result.ok:
+                output["sources"] = {"checked": 0, "skipped": "no blob store: give --blob-root or create <db>.blobs"}
+            _emit(output)
+            return 0 if result.ok and sources_ok else 1
+        blob_root = _blob_root(args) if args.command == "add" else None
+        with Lab.open(args.db, args.tenant, _principal(args), _clock(args), blob_root=blob_root) as lab:
             if args.command == "add":
                 _emit(_add(lab, args))
             elif args.command == "transition":
@@ -188,6 +248,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 info = export_bundle(lab.store, args.out)
                 _emit(info.to_dict())
         return 0
-    except (StoreError, LifecycleError, GraphError, RecordError, ValueError) as exc:
+    except (StoreError, LifecycleError, GraphError, RecordError, SourceError, ValueError) as exc:
         sys.stderr.write(json.dumps({"error": type(exc).__name__, "message": str(exc)}) + "\n")
         return 1

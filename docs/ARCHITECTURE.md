@@ -139,6 +139,33 @@ A bundle is a header line plus one canonical-JSON line per event. `export_bundle
 file, checks the tenant from the header against the genesis and every row, and checks the
 header's count, head hash and issuers. Import and merge do not exist.
 
+## Ports and adapters (increment 2a: sources)
+
+`research_lab/sources/base.py` is the port: `SourcePort` (`adapter_id`, `adapter_version`,
+`fetch(locator) -> SourceDocument`) and `SourceDocument` (content bytes, locator, media type,
+`retrieved_at` from the injected clock, adapter id and version, retrieval metadata, response
+and content SHA-256, optional `pinned` coordinates). Errors: `SourceUnavailable` (keeps the
+HTTP status), `SourceRefused` (policy), `SourceFormatError` (keeps the raw response digest),
+`SourceTooLarge`. The core records know nothing about adapters: `Lab.record_source` turns a
+`SourceDocument` into a `source` record through `SourceDocument.record_body()`.
+
+Adapters: `LocalFileSource` (explicit roots, realpath confinement, O_NOFOLLOW and O_NONBLOCK
+open, fstat regular-file check, size cap) and `GitHubSource` (one host, https only, no
+redirects, timeout, size cap, strict JSON and base64, declared size and git blob sha checked
+against the decoded bytes, ref resolved to a commit through `git/ref/heads` or `git/ref/tags`,
+transport injected: `urllib_transport` for the network, `FixtureTransport` for recorded
+responses). `BlobStore` is the content-addressed, write-once, verify-on-read cache, one
+directory per tenant; `Lab.open(..., blob_root=...)` attaches one.
+
+Idempotency and change: `Graph.source_by_locator` finds the current source for a locator;
+identical content records nothing; different content creates a replacement that
+`SUPERSEDES` the old source and carries a `change` block. `Graph.shared_sources(a, b)` and
+`sources_cited_by` support later correlated-source detection. `Lab.verify_sources` checks
+every blob; the CLI `verify` adds a `sources` key beside the chain result.
+
+Future adapters implement `SourcePort`; the AI port (round 2b) will be a separate package
+and nothing in `sources` names or reaches an AI provider.
+
 ## Decisions taken while building
 
 * Lab verifies the chain on open by default. A tampered genesis is therefore never loaded as

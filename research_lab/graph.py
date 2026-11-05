@@ -153,6 +153,8 @@ EDGE_TABLE: frozenset[tuple[Kind, EdgeType, Kind]] = frozenset(
         (K.EVIDENCE, E.SUPPORTS, K.FINDING),
         (K.EVIDENCE, E.CONTRADICTS, K.FINDING),
         (K.EVIDENCE, E.CITES, K.SOURCE),
+        (K.FINDING, E.CITES, K.SOURCE),
+        (K.HYPOTHESIS, E.CITES, K.SOURCE),
         (K.EVIDENCE, E.DERIVES_FROM, K.EXPERIMENT),
         (K.EXPERIMENT, E.TESTS, K.HYPOTHESIS),
         (K.FINDING, E.DERIVES_FROM, K.EXPERIMENT),
@@ -618,6 +620,34 @@ class Graph:
                 }
             )
         return out
+
+    # sources (preserved inputs; never evidence by themselves)
+
+    def sources(self) -> list[Node]:
+        return [node for node in self.nodes.values() if node.kind is Kind.SOURCE]
+
+    def source_by_locator(self, locator: str) -> Node | None:
+        """The current (not superseded) source record for a locator, or None."""
+        current = None
+        for node in self.sources():
+            if node.latest.body.get("locator") == locator and node.status != ThreadStatus.SUPERSEDED.value:
+                current = node
+        return current
+
+    def sources_cited_by(self, entity_id: str) -> list[Node]:
+        self.node(entity_id)
+        out: list[Node] = []
+        for edge in self.edges_from(entity_id, EdgeType.CITES):
+            target = self.nodes[edge.to_id]
+            if target.kind is Kind.SOURCE and target not in out:
+                out.append(target)
+        return out
+
+    def shared_sources(self, a: str, b: str) -> list[Node]:
+        """Sources both entities cite, in the order a cites them. Input for correlated-source
+        detection in a later round; a shared source is a fact, not a verdict."""
+        cited_by_b = {node.entity_id for node in self.sources_cited_by(b)}
+        return [node for node in self.sources_cited_by(a) if node.entity_id in cited_by_b]
 
     def open_threads(self) -> list[Node]:
         open_values = {status.value for status in OPEN_THREAD_STATUSES}
