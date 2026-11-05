@@ -106,6 +106,7 @@ class Runner:
         self.plan_id = plan_id
         self.tasks: list[Node] = lab.graph.plan_tasks(plan_id)
         self._steps: dict[str, Callable[[StepContext], Any]] = {}
+        self.failures: dict[str, str] = {}
 
     def register(self, step: str, fn: Callable[[StepContext], Any]) -> None:
         self._steps[step] = fn
@@ -135,9 +136,16 @@ class Runner:
                 interrupted.append(run.task_id)
         return interrupted
 
-    def run(self) -> dict[str, TaskRun]:
-        """Reconcile, then run every task that has not COMPLETED, in plan order."""
+    def run(self, stop_on_failure: bool = True) -> dict[str, TaskRun]:
+        """Reconcile, then run every task that has not COMPLETED, in plan order.
+
+        A step that raises an Exception is recorded FAILED. With stop_on_failure (the
+        default) StepFailed is raised at once; without it the failure is kept in
+        self.failures and the remaining tasks still run, so one provider's failure does not
+        stop the others. Either way the plan cannot close while a task is FAILED.
+        """
         self.reconcile()
+        self.failures = {}
         for node in self.tasks:
             run = self.states()[node.entity_id]
             if run.state is TaskState.COMPLETED:
@@ -151,11 +159,19 @@ class Runner:
             try:
                 output = normalize(fn(context))
             except CanonicalError as exc:
-                self._emit(RUN_FAILED, run.task_id, run.step, attempt, error=f"output not canonical JSON: {exc}")
-                raise StepFailed(f"step {run.step!r}: output not canonical JSON") from exc
+                error = f"output not canonical JSON: {exc}"
+                self._emit(RUN_FAILED, run.task_id, run.step, attempt, error=error)
+                self.failures[run.task_id] = error
+                if stop_on_failure:
+                    raise StepFailed(f"step {run.step!r}: output not canonical JSON") from exc
+                continue
             except Exception as exc:
-                self._emit(RUN_FAILED, run.task_id, run.step, attempt, error=f"{type(exc).__name__}: {exc}")
-                raise StepFailed(f"step {run.step!r} failed: {exc}") from exc
+                error = f"{type(exc).__name__}: {exc}"
+                self._emit(RUN_FAILED, run.task_id, run.step, attempt, error=error)
+                self.failures[run.task_id] = error
+                if stop_on_failure:
+                    raise StepFailed(f"step {run.step!r} failed: {exc}") from exc
+                continue
             # A BaseException that is not an Exception (KeyboardInterrupt, SystemExit, a simulated
             # crash) propagates with nothing written: that is what an interruption looks like.
             self._emit(RUN_COMPLETED, run.task_id, run.step, attempt, output=output)

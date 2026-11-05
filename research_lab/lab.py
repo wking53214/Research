@@ -29,6 +29,7 @@ from .lifecycle import (
     FindingStage,
     LifecycleError,
     ThreadStatus,
+    check_evidence_label,
     check_governance_transition,
     check_lab_transition,
     initial_status,
@@ -254,6 +255,7 @@ class Lab:
         entity_id: str | None = None,
     ) -> Record:
         """Add version 1 of a new entity. Its status is fixed by initial_status(kind)."""
+        check_evidence_label(origin.kind, evidence_label)
         edge_specs = self._edge_specs(kind, None, edges)
         record = Record.create(
             kind=kind,
@@ -390,6 +392,24 @@ class Lab:
         done = self.supersede(existing.entity_id, body, actor, "source content changed at re-fetch", edges=edges)
         return SourceRecording(done.replacement, created=True, changed=True, previous_id=existing.entity_id)
 
+    def record_contradiction(
+        self, a_id: str, b_id: str, reason: str, actor: Actor, evidence: Sequence[Mapping[str, Any]] = ()
+    ) -> Record:
+        """Preserve that two entities contradict each other: a contradiction record that
+        INVOLVES both. Neither side changes status; nothing picks a winner. The allowed sides
+        are hypotheses, evidence and findings (the existing INVOLVES rows of the edge table)."""
+        reason = self._check_reason(reason)
+        if a_id == b_id:
+            raise GraphError("a contradiction needs two different entities")
+        body = {"reason": reason, "between": [a_id, b_id]}
+        return self.add(
+            Kind.CONTRADICTION, body, actor, edges=[(EdgeType.INVOLVES, a_id), (EdgeType.INVOLVES, b_id)], provenance=evidence
+        )
+
+    def contradictions_of(self, entity_id: str) -> list:
+        """Contradiction records involving the entity, whatever its kind."""
+        return self.graph.contradictions_involving(entity_id)
+
     def verify_sources(self) -> SourcesCheck:
         """Every recorded source's blob must exist and hash to its digest. Detects an input
         modified after preservation. Separate from verify(): the log can be intact while a
@@ -424,6 +444,11 @@ class Lab:
         provenance: Sequence[Mapping[str, Any]] = (),
     ) -> Supersession:
         """Add a replacement of the same kind and link it SUPERSEDES old.
+
+        The replacement inherits the old entity's evidence label unless one is given. An
+        AI-origin replacement cannot inherit EXECUTED (an AI-origin record never carries that
+        label), so an AI superseding an EXECUTED finding must pass an explicit label such as
+        INFERRED or the call is refused and nothing is written.
 
         The old entity is retired through a lab transition only where the lab may do that:
         threads move to SUPERSEDED, findings below ACCEPTED move to WITHDRAWN. A finding at

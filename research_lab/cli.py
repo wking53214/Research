@@ -206,6 +206,9 @@ def _show(lab: Lab, args: argparse.Namespace) -> dict:
         "edges_in": [edge.to_dict() for edge in lab.graph.edges_to(node.entity_id)],
         "open_challenges": [c.entity_id for c in lab.graph.open_challenges(node.entity_id)],
         "challenges": lab.graph.challenge_summary(node.entity_id),
+        "ai_calls": [item for record in node.versions for item in record.provenance if item.get("type") == "ai_call"],
+        "citations": node.latest.body.get("citations", []),
+        "contradictions": [c.entity_id for c in lab.graph.contradictions_involving(node.entity_id)],
     }
 
 

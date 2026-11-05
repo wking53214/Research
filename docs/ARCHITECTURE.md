@@ -166,6 +166,52 @@ every blob; the CLI `verify` adds a `sources` key beside the chain result.
 Future adapters implement `SourcePort`; the AI port (round 2b) will be a separate package
 and nothing in `sources` names or reaches an AI provider.
 
+## The AI port and the investigation (increment 2b)
+
+`research_lab/ai/port.py` is the only way AI output enters the lab: `AIRequest` (purpose,
+instructions, source inputs with entity id, content digest and the exact excerpt, output
+cap, settings, and a request digest over all of it), `AIResponse` (text plus provenance:
+provider id and kind, adapter version, model requested and reported, request digest echoed,
+response digest, finish reason, usage, latency from the injected clock, `is_live`,
+`origin`), the `AIPort` protocol and four errors. `research_lab/ai/conformance.py` is the
+suite any implementation must pass; `docs/WATCHER_MCU_PORT.md` is the contract for the
+WATCHER_MCU implementation that does not exist yet.
+
+Implementations: `ReplayAIPort` serves responses keyed by request digest from a JSON-lines
+recording whose header must say `origin: synthetic_test_data` (anything else is refused);
+`ExtractiveBaselinePort` ranks sentences of the excerpts by keyword overlap and returns them
+as exact quotes. Neither is a model.
+
+`ProviderPolicy` (`research_lab/ai/policy.py`) names the provider kinds a deployment allows.
+It is supplied by the deploying code, not fixed in genesis (moving it there is a later
+hardening). `STACK_PROFILE` allows only `watcher_mcu`; `STANDALONE_DEV_PROFILE` allows
+`replay` and `deterministic_baseline`.
+
+Flow of `run_investigation` (`research_lab/investigation.py`), one plan on the Runner:
+
+1. Policy: every port is checked against the policy before the plan is created. A refused
+   port means no call and no plan.
+2. `record_sources`: each `SourceDocument` is preserved (idempotent) and a framing question
+   by the SYSTEM runner decomposes the objective.
+3. `call:<provider>` per port: the request is built from the preserved blobs (so a resume
+   builds the same request and digest); the request bytes go to the blob store; if an
+   earlier attempt of this task already checkpointed a response for this request digest,
+   that response is reused from the blob store and the provider is not called again;
+   otherwise the port is called, the raw response text is stored and checkpointed; the text
+   is parsed strictly (a format error fails this task with the raw digest in the error);
+   citations are verified; questions and hypotheses are recorded as AI-origin (or SYSTEM
+   for a non-model port) records with an `ai_call` provenance block; CITES edges go to the
+   cited sources that exist. A provider error fails this task only.
+4. `analyse`: for every pair of hypotheses from different ports, `shared_sources` decides
+   `NOT_INDEPENDENT` or `INDEPENDENT_SOURCES`, recorded as a review record that REVIEWS both.
+   Contradictions are not inferred; `Lab.record_contradiction` preserves one when a person or
+   later round identifies it, and no proposal is ever chosen over another.
+5. The plan closes only when every task COMPLETED; the `InvestigationSummary` lists what is
+   complete, failed, interrupted, pending and how many citations are unverified.
+
+Run state lives in the graph (`TaskRun.all_checkpoints` keeps every checkpoint of every
+attempt), so resume works from the store alone and the idempotency check survives a crash.
+
 ## Decisions taken while building
 
 * Lab verifies the chain on open by default. A tampered genesis is therefore never loaded as

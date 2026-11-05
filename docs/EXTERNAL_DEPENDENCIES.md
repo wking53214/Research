@@ -20,9 +20,17 @@ every module in the package and fails if any import is outside `sys.stdlib_modul
 No STACK repository is imported, vendored or copied. CNS, TIE, HERALD, WATCHER_MCU and the
 others were read for their contracts only, as the build brief allowed.
 
+## AI providers
+
+None. `research_lab/ai` contains no vendor SDK and no provider URL
+(`tests/test_repo_hygiene.py::test_package_contains_no_ai_provider_sdk_or_url`, EXECUTED).
+The two AI port implementations are a replay of synthetic test data and a deterministic
+keyword extractor. The WATCHER_MCU implementation does not exist (`docs/WATCHER_MCU_PORT.md`).
+
 ## Network
 
-Core records, store, graph, lifecycle, orchestration and export: none. Tests: none (GitHub
+Core records, store, graph, lifecycle, orchestration, export, AI port and investigation:
+none. Tests: none (GitHub
 responses come from `tests/fixtures/github`, served by `FixtureTransport`).
 
 `research_lab.sources.github.GitHubSource` with `urllib_transport` makes read-only HTTPS GET

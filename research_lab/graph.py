@@ -25,6 +25,7 @@ from .lifecycle import (
     LifecycleError,
     ThreadStatus,
     check_challenge_filing,
+    check_evidence_label,
     check_governance_transition,
     check_lab_transition,
     initial_status,
@@ -70,6 +71,7 @@ class TaskRun:
     attempts: int = 0
     output: Any = None
     partial: list[Any] = field(default_factory=list)
+    all_checkpoints: list[Any] = field(default_factory=list)  # every checkpoint of every attempt
     error: str | None = None
     seqs: list[int] = field(default_factory=list)
 
@@ -82,6 +84,7 @@ class TaskRun:
             "attempts": self.attempts,
             "output": self.output,
             "partial": list(self.partial),
+            "all_checkpoints": list(self.all_checkpoints),
             "error": self.error,
             "seqs": list(self.seqs),
         }
@@ -97,6 +100,7 @@ class TaskRun:
         elif event.event_type == RUN_PROGRESS:
             self.output_state = OutputState.PARTIAL
             self.partial.append(event.payload.get("data"))
+            self.all_checkpoints.append(event.payload.get("data"))
         elif event.event_type == RUN_COMPLETED:
             self.state = TaskState.COMPLETED
             self.output_state = OutputState.COMPLETE
@@ -376,6 +380,7 @@ class Graph:
             raise GraphError(f"{record.entity_id}: a new {record.kind.value} must start {expected}, not {record.disposition}")
         if record.entity_id in self.nodes:
             raise GraphError(f"entity {record.entity_id} already exists")
+        check_evidence_label(record.origin.kind, record.evidence_label)
         edges = payload.get("edges", [])
         for item in edges:
             self._check_edge(record.kind, record.entity_id, item["edge"], item["to"])
@@ -543,6 +548,10 @@ class Graph:
                     order.append(item.to_id)
                     queue.append(item.to_id)
         return [self.nodes[item] for item in order]
+
+    def contradictions_involving(self, entity_id: str) -> list[Node]:
+        """Contradiction records that INVOLVE the entity, whatever its kind."""
+        return [child for child in self.children(entity_id, EdgeType.INVOLVES) if child.kind is Kind.CONTRADICTION]
 
     def contradictions_of(self, hypothesis_id: str) -> dict[str, list[Node]]:
         """Evidence that CONTRADICTS the hypothesis and contradiction records that INVOLVE it."""

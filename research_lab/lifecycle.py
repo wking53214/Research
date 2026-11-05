@@ -184,6 +184,13 @@ def _check_in_table(kind: Kind, current: str, target: str) -> None:
         raise TransitionError(f"{kind.value}: {current} -> {target} is not an allowed transition")
 
 
+def check_evidence_label(origin_kind: ActorKind, label: Any) -> None:
+    """Anything an AI produced is at most INSPECTED or INFERRED: an AI-origin record can never
+    carry the EXECUTED label, on write or on replay."""
+    if origin_kind is ActorKind.AI and getattr(label, "value", label) == "EXECUTED":
+        raise AuthorityError("an AI-origin record cannot carry the EXECUTED evidence label")
+
+
 def governance_required(kind: Kind, current: str, target: str) -> bool:
     """True when only a governance disposition may make this transition: reaching ACCEPTED or
     ADMITTED, withdrawing a finding that is ACCEPTED or ADMITTED, or resolving a challenge

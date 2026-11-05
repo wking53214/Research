@@ -172,6 +172,55 @@ on every read; a blob that no longer hashes to its name is refused and `verify_s
 reports it. Anyone with file access can still delete or modify blobs; that is detected,
 not prevented.
 
+## The AI port (increment 2b): output is a proposal, never knowledge
+
+Everything an AI port returns is untrusted text. The lab parses it with a strict schema
+(unknown keys, wrong types, empty strings, oversize payloads and duplicate cites refused),
+stores the raw text in the blob store before parsing so a rejected response is still
+preserved with its digest, and records what survives as AI-origin proposals. An AI-origin
+record can never carry the EXECUTED label, cannot be reviewed or accepted by its author,
+and goes through the same governance rules as everything else; nothing it says changes any
+other record.
+
+Policy (attack 15, "research output cannot bypass WATCHER_MCU"): the investigation refuses,
+before creating a plan or calling anything, every port whose kind the policy does not
+allow. Under `STACK_PROFILE` only `watcher_mcu` is allowed and no implementation of that
+kind exists, so every investigation is refused (EXECUTED:
+`tests/test_investigation.py::test_stack_profile_refuses_before_any_call`, zero calls
+asserted). The policy is supplied by the deploying code, which means a deployer who passes
+the development profile can run the non-vendor ports; moving the policy into the
+tamper-evident genesis configuration is a later hardening.
+
+Replay data: every recording the replay port accepts must declare
+`origin: synthetic_test_data` in its header, and that origin is written into every record
+derived from it. The recordings in this repository and in the demo are hand-written test
+data, never a model's output. The deterministic baseline is keyword extraction; it is not a
+model and its output is only as good as the heuristic.
+
+Citation verification: a cite is VERIFIED when its quote appears verbatim, after whitespace
+normalisation, in the preserved blob of the cited source entity of this tenant, and the
+result records the character span of the match in the normalised source text so an
+auditor can find the passage; otherwise it is UNVERIFIED with a reason (unknown source,
+quote too short, quote not found, blob corrupt, blob missing) and kept, never dropped. A
+verbatim quote of any length proves only that those words occur in the stored source. It
+does not prove that the claim the quote supports is true, that the quote is in context, or
+that the source is reliable. Short quotes are refused (fewer than `MIN_QUOTE_CHARS` = 20
+characters or `MIN_QUOTE_TOKENS` = 4 words after normalisation, both overridable) to stop a
+provider obtaining VERIFIED with a trivial substring such as "a" (found by the verifier's
+attack7, case Q3). Case changes, quotes stitched from two places and quotes from another
+source are UNVERIFIED. Agreement between proposals that cite a common source is not
+validation; the investigation marks such pairs NOT_INDEPENDENT (attack 3).
+
+Provider failure: one provider raising ProviderUnavailable, ProviderTimeout or
+ProviderRefused, or returning a changed format, fails only its own task; the other ports
+run; the plan cannot close until every task completed; a later retry completes it without
+re-calling providers that already answered (idempotent by request digest).
+
+What is not protected: a provider that returns well-formed JSON with verbatim quotes
+chosen to mislead passes every check here; the checks are about form and provenance. No
+live provider has been exercised. Credentials for a live provider are the adapter's
+concern and are never recorded by the lab.
+
 ## What verify() does not detect
 
 * **Full rewrite.** An attacker who rewrites the whole chain from genesis with fresh hashes

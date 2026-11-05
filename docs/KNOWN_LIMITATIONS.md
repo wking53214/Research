@@ -64,5 +64,20 @@ design choice for now or a gap.
     `record_source` does not verify that an existing blob for an idempotent re-fetch is
     intact; `verify_sources` does. The demo's local-file example depends on a sibling
     checkout of WATCHER_MCU being present; the test uses a stand-in file.
+18. **AI port (increment 2b).** No WATCHER_MCU implementation and no live provider: the
+    contract is exercised only by a synthetic replay and a deterministic extractor. The
+    policy is supplied by the deployer, not by genesis. The baseline's sentence splitter
+    and keyword overlap are crude; its proposals are quotes, not insight. Excerpts are the
+    first `max_excerpt_chars` characters of each source, so a provider never sees the rest.
+    Hypotheses from a port are linked to one framing question, not to the port's own
+    questions. Contradictions are not detected by the runner; `record_contradiction`
+    preserves what a person identifies. The independence check only compares cited
+    sources; two providers trained on the same material are not detected. Citation checks
+    use whitespace normalisation only (no Unicode folding, no fuzzy match), so a quote with
+    a different dash or quotation mark is UNVERIFIED. A quote shorter than 20 characters or
+    4 words is always UNVERIFIED, even when it is genuinely in the source. A long verbatim
+    quote can still be cited for a claim it does not support; VERIFIED says the words are
+    there at the recorded span, nothing more. Request and response blobs share the
+    source blob store and count against the same cap. No `investigate` CLI command.
 16. **ruff and bandit were not run** in the build environment (not installed, no installs
     allowed). The configuration in `pyproject.toml` is untested here.
