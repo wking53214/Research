@@ -34,13 +34,16 @@ class ProviderRefused(AIError):
 
 class ResponseFormatError(AIError):
     """The response text does not have the expected shape. response_digest is the SHA-256 of
-    the raw text so the preserved blob can be found."""
+    the raw text so the preserved blob can be found. A port that rejects what its backend
+    returned (before any AIResponse exists) passes the raw text as raw_text so the caller
+    can preserve it; raw_text is never part of the message."""
 
-    def __init__(self, reason: str, response_digest: str | None = None) -> None:
+    def __init__(self, reason: str, response_digest: str | None = None, raw_text: str | None = None) -> None:
         suffix = f" [response sha256 {response_digest}]" if response_digest else ""
         super().__init__(reason + suffix)
         self.reason = reason
         self.response_digest = response_digest
+        self.raw_text = raw_text
 
 
 def _nonempty(value: Any, name: str) -> str:

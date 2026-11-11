@@ -184,10 +184,15 @@ other record.
 
 Policy (attack 15, "research output cannot bypass WATCHER_MCU"): the investigation refuses,
 before creating a plan or calling anything, every port whose kind the policy does not
-allow. Under `STACK_PROFILE` only `watcher_mcu` is allowed and no implementation of that
-kind exists, so every investigation is refused (EXECUTED:
-`tests/test_investigation.py::test_stack_profile_refuses_before_any_call`, zero calls
-asserted). The policy is supplied by the deploying code, which means a deployer who passes
+allow. Under `STACK_PROFILE` only `watcher_mcu` is allowed, and the only port of that kind is
+`WatcherAIPort`; an investigation that names the replay or baseline port, alone or beside
+it, is refused (EXECUTED:
+`tests/test_investigation.py::test_stack_profile_refuses_before_any_call` and
+`tests/test_watcher_port.py::test_stack_profile_refuses_a_stand_in_beside_the_watcher_port_before_any_call`,
+zero calls asserted). The kind is a string a port declares about itself: the policy does
+not prove that a port of kind `watcher_mcu` really calls WATCHER_MCU, so a deployer who
+hands `WatcherAIPort` another callable bypasses WATCHER_MCU; the adapter's strict check of
+the wire response is a format check, not authentication. The policy is supplied by the deploying code, which means a deployer who passes
 the development profile can run the non-vendor ports; moving the policy into the
 tamper-evident genesis configuration is a later hardening.
 

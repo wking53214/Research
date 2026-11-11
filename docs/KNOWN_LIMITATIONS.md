@@ -64,8 +64,23 @@ design choice for now or a gap.
     `record_source` does not verify that an existing blob for an idempotent re-fetch is
     intact; `verify_sources` does. The demo's local-file example depends on a sibling
     checkout of WATCHER_MCU being present; the test uses a stand-in file.
-18. **AI port (increment 2b).** No WATCHER_MCU implementation and no live provider: the
-    contract is exercised only by a synthetic replay and a deterministic extractor. The
+18. **AI port (increment 2b).** No live provider has ever been called: the contract is
+    exercised only by a synthetic replay, a deterministic extractor and `WatcherAIPort`
+    over fakes. The WATCHER_MCU side of that adapter (`watcher/port.py`) is on an
+    UNREVIEWED, UNMERGED branch (`ccr-1d38b634-vzy1xp`); if it changes in review, the
+    adapter and the wire format in `docs/WATCHER_MCU_PORT.md` must change with it, and only
+    the `integration` test (deselected by default) would notice. Whether the real API
+    accepts the call WATCHER_MCU makes for this port is not shown by anything here.
+    `WatcherAIPort` sends `instructions` and the excerpts; the request's `purpose` and
+    `settings` are not sent (the request digest covers them). The WATCHER_MCU version that
+    answered is recorded inside `usage` as `watcher_adapter_version`, because `AIResponse`
+    has no field for it. There is no timeout mapping: the wire has no timeout code, so a
+    timeout arrives as `ProviderUnavailable`, never `ProviderTimeout`. A wire request the
+    other side calls malformed or too large is a `ProviderRefused`. An exception with no
+    known `code` becomes `ProviderUnavailable` naming only its type. After a failed
+    provider is retried on resume, the `analyse` step is not re-run (it completed in the
+    first run), so that provider's hypotheses get no independence check
+    (`tests/test_watcher_port.py` asserts this as a recorded gap). The
     policy is supplied by the deployer, not by genesis. The baseline's sentence splitter
     and keyword overlap are crude; its proposals are quotes, not insight. Excerpts are the
     first `max_excerpt_chars` characters of each source, so a provider never sees the rest.

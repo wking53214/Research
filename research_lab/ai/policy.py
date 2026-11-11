@@ -2,8 +2,8 @@
 
 The policy is supplied by the deploying code, not fixed in genesis. Moving it into the
 tamper-evident genesis configuration is a later hardening. Under STACK_PROFILE only the
-WATCHER_MCU kind is allowed, and no implementation of that kind exists in this repository,
-so under that profile every investigation is refused before any provider is called.
+WATCHER_MCU kind is allowed: WatcherAIPort (research_lab/ai/watcher.py) is of that kind,
+and an investigation that names any other port is refused before any provider is called.
 """
 
 from __future__ import annotations

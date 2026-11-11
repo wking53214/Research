@@ -6,6 +6,39 @@ Semantic Versioning. The version lives in one place, `research_lab.__version__`;
 
 ## [Unreleased]
 
+### Added (WATCHER_MCU adapter; offline only, no live call has been made)
+
+- `research_lab/ai/watcher.py`: `WatcherAIPort(call, *, clock, model, effort=None,
+  provider_id="watcher_mcu")`, an `AIPort` of kind `watcher_mcu` that exchanges plain
+  mappings with WATCHER_MCU's generic port through an injected callable; `wire_request`,
+  `check_wire_response`, and `load_watcher_call()`, which imports `watcher.port` through
+  `importlib` only when called. The package still imports nothing but the standard library
+  and names no provider. The wire response is checked strictly (keys, types, echo of the
+  lab's request digest, response digest recomputed); failures are mapped by the exception's
+  `code`. `model` has no default: the lab does not choose a model for a deployment.
+- `ResponseFormatError` takes an optional `raw_text`; when a port raises it with one,
+  `run_investigation` writes that text to the blob store before the task fails.
+- `tests/test_watcher_port.py`: conformance over a fake that keeps the wire contract and
+  over fakes that break it, failure mapping, policy (`STACK_PROFILE` allows this port and
+  still refuses the replay and baseline ports; `STANDALONE_DEV_PROFILE` unchanged), the
+  investigation under `STACK_PROFILE` (synthetic JSON, a fabricated citation, a provider
+  failure and resume, a refusal, prose, a wire violation), guards that the lab never
+  imports `watcher`, and the refusal paths of the live example.
+- A pytest marker `integration`, deselected by default (`addopts`), with one test that
+  imports the real `watcher.port` from a WATCHER_MCU checkout and drives it with a fake
+  narrator through the adapter.
+- `examples/live_watcher_demo.py`: exits 2 with a message and makes no call unless `--live`
+  is given and WATCHER_MCU reports a credential. Never run live.
+
+### Changed
+
+- `research_lab/ai/policy.py` and `research_lab/ai/__init__.py` docstrings,
+  `examples/investigation_demo.py` (one docstring sentence and one printed parenthesis),
+  README, `docs/WATCHER_MCU_PORT.md`, `docs/ARCHITECTURE.md`, `docs/KNOWN_LIMITATIONS.md`,
+  `docs/SECURITY.md`, `docs/EXTERNAL_DEPENDENCIES.md`: they said no WATCHER_MCU
+  implementation exists. Acceptance item 3 is now "partially implemented"; the WATCHER_MCU
+  side is on an unreviewed, unmerged branch. No pre-existing test was edited.
+
 ## [0.1.0] - 2026-11-05, not tagged, not committed by the builder
 
 Increment 1, foundation. Built in a working tree; the owner decides what to commit.

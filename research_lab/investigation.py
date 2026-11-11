@@ -18,7 +18,7 @@ from typing import Any, Sequence
 from .ai.citations import UNVERIFIED, VERIFIED, verify_citations
 from .ai.outputs import parse_proposals
 from .ai.policy import ProviderPolicy, check_port_allowed
-from .ai.port import AIPort, AIRequest, AIResponse, SourceInput
+from .ai.port import AIPort, AIRequest, AIResponse, ResponseFormatError, SourceInput
 from .graph import EdgeType, TaskState
 from .lab import Lab
 from .orchestration import Runner, StepContext, create_plan
@@ -197,7 +197,12 @@ def run_investigation(
                 response = AIResponse.from_dict(prior[-1], text=text)
                 reused = True
             else:
-                response = port.complete(request)  # ProviderUnavailable/Refused/Timeout fail this task only
+                try:
+                    response = port.complete(request)  # ProviderUnavailable/Refused/Timeout fail this task only
+                except ResponseFormatError as exc:
+                    if exc.raw_text is not None:  # the port rejected its backend's answer: keep the raw text
+                        lab.blobs.write(exc.raw_text.encode("utf-8"))
+                    raise
                 lab.blobs.write(response.text.encode("utf-8"))
                 ctx.checkpoint(response.to_dict(include_text=False))
                 reused = False
