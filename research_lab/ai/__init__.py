@@ -1,9 +1,10 @@
 """The AI port: one provider-neutral contract through which all AI interaction passes.
 
-No vendor SDK lives in this package. Two implementations ship: ReplayAIPort (recorded,
-synthetic test data) and ExtractiveBaselinePort (deterministic keyword extraction, not a
-model). The WATCHER_MCU implementation is NOT in this repository; see
-docs/WATCHER_MCU_PORT.md for the contract it must satisfy and the conformance suite.
+No vendor SDK lives in this package. Three implementations ship: ReplayAIPort (recorded,
+synthetic test data), ExtractiveBaselinePort (deterministic keyword extraction, not a
+model) and WatcherAIPort, an adapter that sends the request through WATCHER_MCU's generic
+port as plain mappings without importing WATCHER_MCU. No live call has been made through
+it; see docs/WATCHER_MCU_PORT.md for the contract, the wire format and the conformance suite.
 
 AI output is always a proposal. It enters the lab as AI-origin records whose citations are
 checked against preserved sources; a verbatim quote proves the source contains the words,
@@ -27,6 +28,7 @@ from .port import (
     SourceInput,
 )
 from .replay import RECORDING_SCHEMA, SYNTHETIC_ORIGIN, ReplayAIPort, write_recording
+from .watcher import WatcherAIPort, load_watcher_call
 
 __all__ = [
     "AIError",
@@ -55,8 +57,10 @@ __all__ = [
     "UNVERIFIED",
     "VERIFIED",
     "WATCHER_MCU_KIND",
+    "WatcherAIPort",
     "assert_conformant",
     "check_port_allowed",
+    "load_watcher_call",
     "normalize_ws",
     "parse_proposals",
     "render_proposals",

@@ -24,8 +24,12 @@ others were read for their contracts only, as the build brief allowed.
 
 None. `research_lab/ai` contains no vendor SDK and no provider URL
 (`tests/test_repo_hygiene.py::test_package_contains_no_ai_provider_sdk_or_url`, EXECUTED).
-The two AI port implementations are a replay of synthetic test data and a deterministic
-keyword extractor. The WATCHER_MCU implementation does not exist (`docs/WATCHER_MCU_PORT.md`).
+Two AI port implementations are a replay of synthetic test data and a deterministic
+keyword extractor. The third, `WatcherAIPort`, reaches a provider only through WATCHER_MCU,
+which it does not import: it is handed a callable, or `load_watcher_call()` imports
+`watcher.port` by name at call time. WATCHER_MCU is not a declared dependency and nothing in
+the default test suite needs it; the one `integration` test and
+`examples/live_watcher_demo.py` need a checkout on PYTHONPATH (`docs/WATCHER_MCU_PORT.md`).
 
 ## Network
 

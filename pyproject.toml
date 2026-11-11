@@ -42,7 +42,9 @@ research_lab = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-p no:cacheprovider"
+# The cross-repository check needs a WATCHER_MCU checkout on PYTHONPATH; select it with `-m integration`.
+addopts = "-p no:cacheprovider -m 'not integration'"
+markers = ["integration: imports the real watcher.port from a WATCHER_MCU checkout (needs PYTHONPATH); offline, no model"]
 
 [tool.ruff]
 line-length = 120

@@ -10,7 +10,8 @@ baseline's, and a quote from the same source the baseline used. A simulated cras
 second provider after the first provider answered; the resume does not call the first
 provider again. Then the log is exported and verified from the file alone.
 
-Nothing printed here is a model's output. The WATCHER_MCU adapter does not exist yet.
+Nothing printed here is a model's output. The WATCHER_MCU adapter (WatcherAIPort) is not
+used here; examples/live_watcher_demo.py is the script for it and is never run by a test.
 """
 
 from __future__ import annotations
@@ -127,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             run_investigation(lab, objective.entity_id, sources, [baseline, replay], STACK_PROFILE, RUNNER, settings=SETTINGS)
         except ProviderRefused as exc:
             print(f"== under STACK_PROFILE: refused before any call: {exc}")
-        print(f"   calls so far: baseline={len(baseline.calls)} replay={len(replay.calls)} (the WATCHER_MCU adapter does not exist yet)")
+        print(f"   calls so far: baseline={len(baseline.calls)} replay={len(replay.calls)} (neither port is of the watcher_mcu kind)")
 
         crashing = CrashOnce(replay)
         try:

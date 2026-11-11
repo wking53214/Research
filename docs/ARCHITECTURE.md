@@ -174,13 +174,24 @@ cap, settings, and a request digest over all of it), `AIResponse` (text plus pro
 provider id and kind, adapter version, model requested and reported, request digest echoed,
 response digest, finish reason, usage, latency from the injected clock, `is_live`,
 `origin`), the `AIPort` protocol and four errors. `research_lab/ai/conformance.py` is the
-suite any implementation must pass; `docs/WATCHER_MCU_PORT.md` is the contract for the
-WATCHER_MCU implementation that does not exist yet.
+suite any implementation must pass; `docs/WATCHER_MCU_PORT.md` is the contract and the wire
+format of the WATCHER_MCU implementation.
 
 Implementations: `ReplayAIPort` serves responses keyed by request digest from a JSON-lines
 recording whose header must say `origin: synthetic_test_data` (anything else is refused);
 `ExtractiveBaselinePort` ranks sentences of the excerpts by keyword overlap and returns them
 as exact quotes. Neither is a model.
+
+`WatcherAIPort` (`research_lab/ai/watcher.py`) is the adapter for WATCHER_MCU's generic
+port. It is given a callable (`watcher.port.complete` in a deployment, a fake in every
+default test) and exchanges plain mappings with it, so the lab imports nothing of
+WATCHER_MCU; `load_watcher_call()` imports it lazily through `importlib`. The adapter builds
+the wire request from the `AIRequest`, maps a failure by the exception's `code`, checks the
+wire response strictly (keys, types, echo of the lab's request digest, response digest
+recomputed) and measures latency with the lab's clock. A rejected wire response is a
+`ResponseFormatError` carrying the raw text, which `run_investigation` writes to the blob
+store before the task fails. Credentials and the vendor SDK stay in WATCHER_MCU. No live
+call has been made through it.
 
 `ProviderPolicy` (`research_lab/ai/policy.py`) names the provider kinds a deployment allows.
 It is supplied by the deploying code, not fixed in genesis (moving it there is a later
