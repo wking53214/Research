@@ -1,4 +1,4 @@
-# Security notes (increment 1)
+# Security notes
 
 Labels: EXECUTED, INSPECTED, INFERRED, UNKNOWN. This file states what the code defends
 against and, more importantly, what it does not. Nothing here is a production readiness
@@ -30,8 +30,12 @@ false.
 
 What replay checks per event type:
 
-* GENESIS: only at seq 0; schema version; tenant equal to the header; issuers a list of ids;
-  principals non-empty. A second GENESIS, even one inserted with a correct hash, is refused.
+* GENESIS: only at seq 0; schema version 1 or 2; tenant equal to the header; principals
+  non-empty; in a version 2 genesis the governance mode, an exact field set and, in
+  AUTHENTICATED mode, issuer records (kind `human_body` or `system`, never an AI; a valid
+  Ed25519 public key that is not small order; a key label that matches the key; no
+  duplicate id or key); in legacy mode and in a version 1 genesis, issuers a list of ids.
+  A second GENESIS, even one inserted with a correct hash, is refused.
 * RECORD: digest matches content; version 1 with no parents; disposition equals the fixed
   initial status (findings PROPOSED, threads OPEN); tenant equals the store's; entity id not
   already present; every edge in the edge table and pointing at an existing entity.
@@ -40,9 +44,14 @@ What replay checks per event type:
   `from` equals the entity's current status; record disposition equals `to`; a non-empty
   reason; then the lifecycle rules: lab transitions can never reach ACCEPTED or ADMITTED and
   can never withdraw a finding that is ACCEPTED or ADMITTED (owner's ruling W1), review
-  stages by the author are refused, governance transitions (to ACCEPTED, to ADMITTED, or
-  to WITHDRAWN from either) need an issuer in the genesis set, a HUMAN or SYSTEM actor, an
-  actor other than the author, a table-legal move and provenance naming the issuer;
+  stages by the author are refused; governance transitions (to ACCEPTED, to ADMITTED, or
+  to WITHDRAWN from either) need, in an AUTHENTICATED store, a signed grant that verifies
+  under an enrolled key and names this tenant, the current version and its digest, the
+  target, an unused nonce and a time window containing the event's timestamp, an issuer
+  other than the author, a table-legal move and provenance carrying the grant digest (see
+  "Authenticated governance" below); in an UNAUTHENTICATED_LEGACY store they need what
+  increment 1 required: an issuer in the genesis set, a HUMAN or SYSTEM actor, an actor
+  other than the author, a table-legal move and provenance naming the issuer;
   WITHDRAWN is terminal (ruling W3); closing a plan needs every task COMPLETED.
 * EDGE: both entities exist, not the same, combination in the edge table, actor and
   timestamp well formed.
@@ -61,9 +70,11 @@ What this protects and what it does not:
   events that the rules allow.
 * With a signer whose key they do not hold, they cannot forge any event at all without
   `verify(require_signed=True)` failing.
-* Replay validation does not authenticate identities. An event whose actor claims kind
-  SYSTEM with a different id and a public issuer id passes the rules (the attack script's
-  case A5). That remains the "identities are claims" limitation below.
+* In an UNAUTHENTICATED_LEGACY store, replay validation does not authenticate identities.
+  An event whose actor claims kind SYSTEM with a different id and a public issuer id passes
+  the rules (the attack script's case A5). In an AUTHENTICATED store that event is refused
+  on write and on replay: a governance disposition needs a grant signed by an enrolled key.
+  Principal and actor ids remain claims in both modes (see below).
 
 ## Atomic validated append: the store is the single enforcement point (EXECUTED, tests/test_concurrency.py)
 
@@ -118,7 +129,76 @@ What remains:
   validator, or direct SQL) cannot be opened as a Lab, and every validated writer on it is
   refused at its next catch-up. There is no repair tool in increment 1. Keep a verified
   bundle export.
-* Identity is still a claim (see below).
+* Principal and actor identity is still a claim (see below). Governance authority is no
+  longer a claim in an AUTHENTICATED store.
+
+## Authenticated governance: signed grants (EXECUTED, tests/test_governance_*.py, tests/test_ed25519.py)
+
+Full specification: `docs/GOVERNANCE_PORT.md`. Every test signature is made by a test-only
+signer with public seeds; no real governance key or external signer has been exercised.
+
+A new store is AUTHENTICATED: its genesis enrolls Ed25519 public keys of governance issuers
+(kind `human_body` or `system`; an AI kind is refused). A governance disposition is then
+authorized only by a grant signed with an enrolled key over a byte-exact statement that
+names the tenant, the entity, the version being disposed and its digest, the target status,
+a single-use nonce, a time window and a reason. The lab holds public keys only: it verifies
+and cannot forge. The package contains no signer and no key generation.
+
+Attack A5 (an AI invents an actor id, claims kind SYSTEM and quotes a public issuer id) and
+Y2 (the same against a challenge) are CLOSED in AUTHENTICATED mode. Executed refusals, each
+with the event count unchanged and the store still opening and verifying: the claim-based
+`Lab.govern` call; a grant with no signature, a bad signature, any signed field edited, a
+key that is not enrolled, an issuer that is not enrolled, the key of a different enrolled
+issuer, another tenant, another entity, a stale version (also when the status is the same
+again), a wrong record digest, an expired grant, a grant issued in the future beyond the
+skew, the same grant twice, a reused nonce with different content, an issuer that is the
+author. The same forged events are refused at write time through a bare store (the
+mandatory validator) and on replay when written through the unsafe opt-out, and from a
+bundle file alone even after the attacker recomputed every hash in the chain.
+
+Allowed, and intended: any actor may submit a valid grant, an AI included, and so may the
+finding's author. Submission is not authority.
+
+What remains open (none of this is solved by the port):
+
+* **Key custody is external.** Where the private key lives and who can use it is the
+  governance body's matter. The library never sees it and cannot vouch for it.
+* **A compromised key signs valid grants.** Nothing here detects that.
+* **No rotation, no revocation.** Issuer keys are fixed at genesis for the life of the
+  store. A compromised key cannot be replaced or revoked; the only remedy is a new store.
+* **Legacy mode exists.** A store created with the explicit opt-out
+  (`governance_mode="UNAUTHENTICATED_LEGACY"`, `init --unauthenticated-governance`), and
+  every store written before this port, has claim-based governance. A5 and Y2 still succeed
+  there (asserted by `test_recorded_gap_a5_and_y2_are_still_allowed_in_legacy_mode_and_reported_unauthenticated`).
+  The mode is in the genesis and in every `verify`, `show` and bundle report, and each of
+  its dispositions is reported `authenticated: false`.
+* **Clock trust.** A grant's window is compared with the lab's injected clock, which the
+  submitter controls (`--at`, or a directly written event). An expired, never used grant can
+  be presented as applied in time by someone who lies about the time. The grant still binds
+  only that transition of that exact version, once.
+  Asserted as a recorded gap
+  (`test_recorded_gap_the_lab_clock_is_trusted_so_a_backdated_event_can_use_an_expired_grant`).
+* **Code inside the lab process can poison a store.** Overwriting the live graph's enrolled
+  key in process, or using the unsafe opt-out, gets a forged grant written; the next open
+  and every verify refuse it and the store (EXECUTED:
+  `test_recorded_gap_code_running_inside_the_lab_process_can_poison_the_store_but_not_pass_replay`).
+  A forged disposition never verifies; a store can be made unusable.
+* **Enrollment is trusted as written.** The genesis says which key speaks for which issuer
+  and that its kind is `human_body`. Nothing checks that a human body holds it.
+* **Whole-file rewrite.** Recomputing the chain does not let an attacker alter or invent a
+  grant under an enrolled key (EXECUTED), but it does let them write a different genesis:
+  their own key, or legacy mode. Both are asserted as recorded gaps
+  (`test_recorded_gap_a_fully_rewritten_store_with_the_attackers_own_key_verifies_unless_the_genesis_is_pinned`,
+  `test_recorded_gap_a_bundle_rewritten_as_legacy_is_reported_unauthenticated_not_refused`).
+  A verifier closes them for itself by pinning the genesis hash obtained out of band and
+  requiring the mode (`verify --expect-genesis-hash H --require-authenticated`,
+  `verify_bundle(path, expected_genesis_hash=H, require_authenticated=True)`; EXECUTED).
+* **Mixed-order keys and vector coverage.** The verifier rejects small-order keys and R,
+  non-canonical encodings and S not below L; it does not run a prime-subgroup check on a
+  mixed-order key. It passes four RFC 8032 section 7.1 vectors; the 1023-byte vector is
+  not in the suite (not obtainable offline).
+* **Self-approval is by id.** The issuer id is compared with the author's actor id; two
+  different names for one party are not detected.
 
 ## Challenge records: advice, never authority (EXECUTED, tests/test_challenges.py)
 
@@ -126,8 +206,9 @@ A challenge (kind `challenge`, edge `CHALLENGES` to a finding or hypothesis) let
 entitled to the tenant, including an AI actor and the target's own author, record that an
 accepted or admitted finding looks wrong. Filing never changes the target's status or
 version. A challenge is OPEN when filed; only a governance disposition (same rules as
-acceptance: genesis issuer, HUMAN or SYSTEM actor, never the filer, never an AI) resolves it
-UPHELD or DISMISSED; only the filer may withdraw it. All three outcomes are terminal and
+acceptance: in an AUTHENTICATED store a signed grant from an enrolled issuer that is not
+the filer; in a legacy store a genesis issuer id, a HUMAN or SYSTEM actor, never the filer,
+never an AI) resolves it UPHELD or DISMISSED; only the filer may withdraw it. All three outcomes are terminal and
 stay queryable forever. Upholding a challenge does not withdraw the finding: a separate
 governance WITHDRAWN disposition on the finding is still required, and the log shows both
 acts. A filing with an empty reason or no evidence reference is refused; a CHALLENGES edge
@@ -237,18 +318,25 @@ concern and are never recorded by the lab.
   anchor of the head (EXECUTED: `test_deleted_tail_event_is_detected_by_anchor`) or an
   out-of-band count catches it.
 * **HMAC is symmetric.** Anyone who can verify a signature can also forge one. `HmacSigner`
-  proves "signed by a holder of this key", not "signed by this person". Asymmetric signing is
-  not implemented.
+  proves "signed by a holder of this key", not "signed by this person". Asymmetric
+  signatures exist for governance grants only (verify-only Ed25519); the event chain itself
+  is still signed, when it is signed at all, with the symmetric reference signer.
 
 ## Identities are claims
 
 A `Principal` id and an `Actor` id are strings the caller supplies. The store checks the
 principal against the genesis entitlement set and the lifecycle checks actor ids against
-authors and issuer ids, but nothing authenticates that the caller is who it says. Anyone with
-file access and knowledge of an entitled id can open the store and, with a governance issuer
-id and a HUMAN or SYSTEM actor kind, record a governance disposition. Authentication belongs to
-the environment around this library or to a later increment. Do not read a governance
-disposition in this log as proof that the named issuer acted.
+authors, but nothing authenticates that the caller is who it says. That is unchanged: who
+opened the store, who authored a record and who reviewed it are claims.
+
+Governance authority is the exception, and only in an AUTHENTICATED store: there a
+disposition is backed by a signature of an enrolled key, and the log shows the issuer, the
+key label and the submitting actor separately. Read it as "a holder of that enrolled key
+authorized this", not as proof of who the holder is. In an UNAUTHENTICATED_LEGACY store
+anyone with file access and knowledge of an entitled id can still, with a governance
+issuer id and a HUMAN or SYSTEM actor kind, record a governance disposition; do not read
+such a disposition as proof that the named issuer acted. Every report marks it
+`authenticated: false`.
 
 ## Append-only triggers are not a boundary
 
@@ -258,6 +346,12 @@ boundary is `verify()`, plus a signer or anchor against full rewrites.
 
 ## Keys
 
+Governance issuer keys: the store holds PUBLIC keys only, in the genesis. No private key,
+seed or signer exists in the package or the command line. `tests/ed25519_signer.py` is a
+test-only reference signer with public seeds; it is used by the tests and by
+`examples/governance_demo.py` and by nothing else (a test checks that). `key_id` is a
+truncated fingerprint used as a display label; it never takes part in verification.
+
 No key is hard-coded. No default key exists. `HmacSigner` refuses `None`, non-bytes, keys
 shorter than 32 bytes and an empty key id. The key id is a label stored beside the signature;
 it is not derived from the key and must not be treated as a secret. Supply keys from the
@@ -266,7 +360,8 @@ environment or a secret manager; never commit one.
 ## Clocks
 
 Record timestamps come from an injected clock. A caller controls them, so a timestamp is not
-evidence of when something happened. Order and integrity come from the chain sequence.
+evidence of when something happened. Order and integrity come from the chain sequence. The
+same holds for the time window of a governance grant: see "Clock trust" above.
 
 ## Isolation: not yet built
 
@@ -287,6 +382,8 @@ The core makes no network calls and imports nothing outside the standard library
   Preservation and acceptance are different events, and the log shows which happened.
 * A research agent that can write to the store can create records and lab transitions, but
   cannot accept or admit a finding, cannot review its own record, and cannot change issuers.
+  In an AUTHENTICATED store "cannot accept" rests on a signature; in a legacy store it
+  rests on the agent not lying about its actor kind (attack A5).
   It can still flood the log; rate and size limits are not implemented.
 * Cross-tenant: one store, one tenant. There is no shared multi-tenant store, so the
   isolation is the file. File permissions are the deployment's job.

@@ -6,6 +6,84 @@ Semantic Versioning. The version lives in one place, `research_lab.__version__`;
 
 ## [Unreleased]
 
+### Added (authenticated governance port; tested only with a test-only signer)
+
+- `research_lab/crypto/ed25519.py`: verify-only, standard-library Ed25519 (RFC 8032, pure
+  Ed25519). Strict: wrong lengths, non-canonical or off-curve points, small-order public
+  keys and R, and S not below L are refused; the cofactorless equation is checked. No
+  signer, no key generation. Not constant time (all inputs are public). Passes the RFC 8032
+  section 7.1 vectors TEST 1, 2, 3 and SHA(abc); the 1023-byte vector is not in the suite.
+- `research_lab/governance.py`: governance modes (`AUTHENTICATED`, the default for new
+  stores, and `UNAUTHENTICATED_LEGACY`), genesis schema version 2 with issuer records
+  `{issuer_id, kind, alg, public_key, key_id}` (kind `human_body` or `system`; `ai`,
+  `model` and every other kind refused), the GovernanceGrant (eleven fields), its signing
+  bytes (`b"research-lab/governance-grant/1\n"` plus canonical JSON) and the stateless
+  signature check. `key_id` is a fingerprint label, never an integrity input.
+- `Lab.apply_grant(grant, actor)`, `Lab.grant_template(...)`, `Lab.grant_signing_bytes(...)`,
+  `Lab.governance_mode`; `Graph.check_grant` (the single verification used by the Lab, by
+  the store's write-time validator and by every replay), `Graph.governance_report()`;
+  `EventStore.governance_mode`. Grants bind tenant, entity, current version and its digest,
+  target, issuer, a single-use nonce, a time window and a reason; the issuer may not be the
+  author. The submitting actor may be anyone, an AI included.
+- `VerifyResult.governance`: mode, genesis hash, enrolled key labels and every governance
+  disposition with `authenticated` true or false. `verify_store` and `verify_bundle` take
+  `expected_genesis_hash` and `require_authenticated`.
+- CLI: `init --issuer ID:KIND:PUBKEYHEX` (repeatable), `init --unauthenticated-governance`
+  (explicit opt-out, warning on stderr, recorded in genesis), `init --grant-skew-seconds`,
+  `governance sign-bytes`, `governance apply --grant FILE`, `verify --expect-genesis-hash`
+  and `--require-authenticated`; `verify` and `show` report the governance mode and whether
+  each disposition was authenticated. No key generation and no private key handling.
+- `docs/GOVERNANCE_PORT.md` (byte-exact format, a public worked test vector, lifecycle, what
+  the port proves and does not prove, limitations), `examples/governance_demo.py`.
+- Tests: `tests/test_ed25519.py`, `tests/test_governance_grants.py`,
+  `tests/test_governance_modes.py`, `tests/test_governance_cli.py`,
+  `tests/test_governance_export.py`, `tests/test_governance_vector.py`,
+  `tests/test_example_governance.py`; `tests/ed25519_signer.py` (a TEST-ONLY reference
+  signer with public seeds) and `tests/governance_support.py`; `tests/fixtures/legacy_v1/`
+  (a store and its graph as written by the code before this port).
+
+### Changed
+
+- New stores are `AUTHENTICATED` and their genesis is `schema_version` 2.
+  `EventStore.create` and `Lab.create` take keyword-only `governance_mode` and
+  `grant_skew_seconds`; `governance_issuers` is a list of issuer records unless the mode is
+  explicitly `UNAUTHENTICATED_LEGACY`. Passing plain issuer ids without that mode is now
+  refused (before: accepted). This is a breaking change for callers that create stores.
+- `Lab.govern` is refused in an `AUTHENTICATED` store and unchanged in a legacy store.
+- A `schema_version` 1 genesis still opens and replays as before, as
+  `UNAUTHENTICATED_LEGACY`. Nothing is migrated.
+- Attacks A5 and Y2 (an invented actor id claiming kind SYSTEM with a public issuer id) are
+  refused in `AUTHENTICATED` stores and still succeed, reported as unauthenticated, in
+  legacy stores.
+- Bundle header: `store_schema_version` is the genesis's (1 or 2), `governance_mode` is
+  added, and `governance_issuers` is the genesis list as written (issuer records in an
+  AUTHENTICATED store). A header without `governance_mode` is accepted only for a version 1
+  genesis. The bundle schema name is unchanged.
+- `Graph.to_dict()` gained `governance_mode`, `governance_keys`, `grant_skew_seconds`,
+  `used_grant_nonces` and `dispositions`. `VerifyResult.to_dict()` gained `governance`.
+- The four older examples create their store with no governance issuer (`[]`) instead of a
+  plain issuer id; none of them records a governance disposition.
+- Pre-existing tests edited, all for the one reason that their stores use plain issuer ids
+  and must now say so: `tests/conftest.py` (the `lab` fixture, a `LEGACY_MODE` constant,
+  and a filter for the warning that every legacy fixture raises on purpose) and the
+  `Lab.create` or `EventStore.create` calls in `test_ai_port.py`, `test_challenges.py`,
+  `test_citation_minimum.py`, `test_concurrency.py`, `test_export.py`, `test_graph.py`,
+  `test_investigation.py`, `test_mandatory_validator.py`, `test_orchestration.py`,
+  `test_record_source.py`, `test_replay_policy.py`, `test_signer.py`, `test_store.py`,
+  `test_watcher_port.py` gained `governance_mode=LEGACY_MODE`; the `init --issuer` calls
+  in `test_cli.py`, `test_record_source.py` and `test_challenges.py` gained
+  `--unauthenticated-governance`; `test_store.py::test_genesis_carries_tenant_schema_issuers_and_principals`
+  now expects the `governance_mode` field in the genesis. No assertion was weakened or
+  removed.
+
+### Not done, stated plainly
+
+- No rotation or revocation of issuer keys. No real external signer (HSM, KMS, hardware
+  key, CNS identity) has produced a grant for this code. The lab clock is trusted for grant
+  windows. A whole-file rewrite with a different genesis verifies unless the verifier pins
+  the genesis hash. Code inside the lab process can poison a store. Each of the last three
+  is asserted by a `test_recorded_gap_*` test.
+
 ### Added (WATCHER_MCU adapter; offline only, no live call has been made)
 
 - `research_lab/ai/watcher.py`: `WatcherAIPort(call, *, clock, model, effort=None,

@@ -13,8 +13,11 @@ or whose id is not in the genesis entitlement set, is refused (default deny).
 Identities are claims in increment 1. A Principal or Actor id is not authenticated by this
 module; authentication belongs to the caller's environment or a later increment.
 
-Governance issuers are fixed in the genesis event. No API changes them afterwards; a second
-GENESIS event is refused by append().
+Governance issuers and the governance mode are fixed in the genesis event. No API changes
+them afterwards; a second GENESIS event is refused by append(). A new store is
+AUTHENTICATED (its genesis enrolls issuer public keys, see governance.py) unless the caller
+explicitly chooses UNAUTHENTICATED_LEGACY. A schema_version 1 genesis, written before the
+governance port, still opens and is read as UNAUTHENTICATED_LEGACY.
 """
 
 from __future__ import annotations
@@ -24,12 +27,25 @@ import json
 import os
 import sqlite3
 import threading
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Iterator, Mapping, Protocol, Sequence
 
 from .canonical import CanonicalError, canonical_json, digest, normalize
+from .governance import (
+    CURRENT_SCHEMA_VERSION,
+    DEFAULT_GRANT_SKEW_SECONDS,
+    LEGACY_WARNING,
+    MODE_AUTHENTICATED,
+    MODE_LEGACY,
+    SUPPORTED_SCHEMA_VERSIONS,
+    GovernanceError,
+    UnauthenticatedGovernanceWarning,
+    build_genesis_governance,
+    read_genesis,
+)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = CURRENT_SCHEMA_VERSION  # what create() writes; SUPPORTED_SCHEMA_VERSIONS still open
 GENESIS = "GENESIS"
 GENESIS_PREV_HASH = "0" * 64
 MIN_KEY_BYTES = 32
@@ -208,6 +224,9 @@ class VerifyResult:
     unverified_signatures: int = 0
     head_hash: str | None = None
     policy_checked: bool = False  # True once a replay validated every event against the lab's rules
+    # Filled by the policy replay: governance mode, genesis hash, enrolled key labels and, for
+    # every recorded governance disposition, whether a signed grant authenticated it.
+    governance: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -218,6 +237,7 @@ class VerifyResult:
             "unverified_signatures": self.unverified_signatures,
             "head_hash": self.head_hash,
             "policy_checked": self.policy_checked,
+            "governance": self.governance,
         }
 
 
@@ -241,8 +261,10 @@ def verify_events(
         result.problems.append(f"seq {genesis.seq}: first event is {genesis.event_type}, not {GENESIS}")
     else:
         payload = genesis.payload
-        if payload.get("schema_version") != SCHEMA_VERSION:
-            result.problems.append(f"genesis schema_version {payload.get('schema_version')!r} is not {SCHEMA_VERSION}")
+        if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS or isinstance(payload.get("schema_version"), bool):
+            result.problems.append(
+                f"genesis schema_version {payload.get('schema_version')!r} is not one of {list(SUPPORTED_SCHEMA_VERSIONS)}"
+            )
         if not isinstance(payload.get("governance_issuers"), list):
             result.problems.append("genesis governance_issuers missing")
         if not isinstance(payload.get("principals"), list) or not payload.get("principals"):
@@ -394,22 +416,33 @@ class EventStore:
         path: str,
         tenant: str,
         principal: Principal,
-        governance_issuers: Sequence[str],
+        governance_issuers: Sequence[Any],
         principals: Sequence[str] | None = None,
         signer: Signer | None = None,
         anchor: Anchor | None = None,
         validator: Validator | None = None,
         unsafe_unvalidated: bool = False,
+        *,
+        governance_mode: str = MODE_AUTHENTICATED,
+        grant_skew_seconds: int = DEFAULT_GRANT_SKEW_SECONDS,
     ) -> "EventStore":
         """Create a new store and write its genesis event. Refuses a path that already has events.
+
+        governance_mode is AUTHENTICATED by default: governance_issuers is then a sequence of
+        issuer records with public keys (governance.make_issuer builds one) and may be empty,
+        which means no governance disposition is ever possible in this store. Plain issuer
+        ids are accepted only with governance_mode="UNAUTHENTICATED_LEGACY", which must be
+        passed explicitly, is recorded in the genesis and raises a warning.
 
         The genesis is written before any validator is consulted. Afterwards the standard
         Graph-based policy validator is attached (or the one given), so every later append is
         validated. unsafe_unvalidated=True attaches none: it exists only for tests that
         deliberately write a corrupted log to exercise the replay backstop."""
         cls._check_claim(tenant, principal)
-        if governance_issuers is None or not all(isinstance(item, str) and item for item in governance_issuers):
-            raise StoreError("governance_issuers must be a sequence of non-empty issuer ids (may be empty)")
+        try:
+            governance = build_genesis_governance(governance_issuers, governance_mode, grant_skew_seconds)
+        except GovernanceError as exc:
+            raise StoreError(str(exc)) from exc
         entitled = list(principals) if principals is not None else [principal.id]
         if principal.id not in entitled:
             raise AccessRefused("the creating principal must be in the entitled principal set")
@@ -426,9 +459,11 @@ class EventStore:
         payload = {
             "schema_version": SCHEMA_VERSION,
             "tenant": tenant,
-            "governance_issuers": sorted(set(governance_issuers)),
+            **governance,
             "principals": sorted(set(entitled)),
         }
+        if governance_mode == MODE_LEGACY:
+            warnings.warn(LEGACY_WARNING, UnauthenticatedGovernanceWarning, stacklevel=2)
         store._append(GENESIS, payload, allow_genesis=True)
         store._genesis = payload
         if not unsafe_unvalidated:
@@ -491,7 +526,17 @@ class EventStore:
 
     @property
     def governance_issuers(self) -> frozenset[str]:
-        return frozenset(self.genesis()["governance_issuers"])
+        """The enrolled issuer ids. Read from the genesis event only."""
+        issuers = self.genesis()["governance_issuers"]
+        return frozenset(item["issuer_id"] if isinstance(item, Mapping) else item for item in issuers)
+
+    @property
+    def governance_mode(self) -> str:
+        """AUTHENTICATED or UNAUTHENTICATED_LEGACY, as fixed by the genesis event."""
+        try:
+            return read_genesis(self.genesis()).mode
+        except (GovernanceError, KeyError, TypeError) as exc:
+            raise StoreError(f"genesis governance is malformed: {exc}") from exc
 
     def count(self) -> int:
         self._check_thread()

@@ -8,7 +8,7 @@ to write unvalidated is the loudly named test-only opt-out unsafe_unvalidated=Tr
 import inspect
 
 import pytest
-from conftest import ISSUERS, TENANT
+from conftest import ISSUERS, LEGACY_MODE, TENANT
 
 from research_lab.clock import StepClock
 from research_lab.graph import EVENT_RECORD, EVENT_TRANSITION, Graph, PolicyViolation
@@ -60,7 +60,7 @@ def test_bare_store_accepts_a_valid_append_after_catching_up(db_path, principal,
 
 
 def test_create_attaches_the_validator_too(db_path, principal, ai):
-    store = EventStore.create(db_path, TENANT, principal, ISSUERS)
+    store = EventStore.create(db_path, TENANT, principal, ISSUERS, governance_mode=LEGACY_MODE)
     assert isinstance(store.validator, Graph)
     with pytest.raises(PolicyViolation, match="unknown event type 'NOTE'"):
         store.append("NOTE", {"anything": 1})

@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     print("== offline demo: GitHub from recorded fixtures, replay port from a SYNTHETIC recording written below, no model, no network")
 
     with tempfile.TemporaryDirectory() as workdir:
-        lab = Lab.create(os.path.join(workdir, "lab.sqlite"), TENANT, PRINCIPAL, ["governance-board"], clock, blob_root=os.path.join(workdir, "blobs"))
+        lab = Lab.create(os.path.join(workdir, "lab.sqlite"), TENANT, PRINCIPAL, [], clock, blob_root=os.path.join(workdir, "blobs"))
         objective = lab.add(Kind.OBJECTIVE, {"title": "Which STACK component is the designated AI interaction boundary?"}, OPERATOR)
         readme = GitHubSource(FixtureTransport(FIXTURES), clock).fetch_file("wking53214", "WATCHER_MCU", "README.md", ref="main")
         sources = [(readme, GITHUB)]

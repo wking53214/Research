@@ -44,7 +44,7 @@ def summary(runner: Runner) -> dict[str, str]:
 
 def process_one(db: str, calls: dict[str, int]) -> str:
     print("== process 1: create the lab and the plan, then crash inside step 2")
-    with Lab.create(db, TENANT, PRINCIPAL, ["governance-board"], StepClock("2026-03-01T09:00:00Z")) as lab:
+    with Lab.create(db, TENANT, PRINCIPAL, [], StepClock("2026-03-01T09:00:00Z")) as lab:
         objective = lab.add(Kind.OBJECTIVE, {"title": "Does resume preserve completed work?"}, OPERATOR)
         plan, _tasks = create_plan(lab, OPERATOR, "resume demo", ["gather", "analyse", "report"], pursues=objective.entity_id)
         runner = Runner(lab, plan.entity_id, OPERATOR)

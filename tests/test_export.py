@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from conftest import ISSUERS, TENANT, tamper
+from conftest import ISSUERS, LEGACY_MODE, TENANT, tamper
 
 from research_lab import export as export_module
 from research_lab.clock import StepClock
@@ -121,7 +121,7 @@ def test_signed_bundle_verifies_with_signer(db_path, principal, human, tmp_path)
     # Changed after verification: export now replays lab policy, so the store is built through
     # a Lab (a bare "NOTE" event is an unknown event type and is refused by replay).
     signer = HmacSigner(bytes(range(32)), "key-a")
-    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), signer=signer)
+    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), signer=signer, governance_mode=LEGACY_MODE)
     lab.add(Kind.OBJECTIVE, {"title": "signed"}, human)
     store = lab.store
     out = str(tmp_path / "signed.jsonl")

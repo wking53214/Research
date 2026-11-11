@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     port = WatcherAIPort(call, clock=clock, model=args.model or narrate.DEFAULT_MODEL)
     print(f"== LIVE: one call through WATCHER_MCU, model requested {port.model!r}, policy profile {STACK_PROFILE.name!r}")
     with tempfile.TemporaryDirectory() as workdir:
-        lab = Lab.create(os.path.join(workdir, "lab.sqlite"), TENANT, PRINCIPAL, ["governance-board"], clock, blob_root=os.path.join(workdir, "blobs"))
+        lab = Lab.create(os.path.join(workdir, "lab.sqlite"), TENANT, PRINCIPAL, [], clock, blob_root=os.path.join(workdir, "blobs"))
         objective = lab.add(Kind.OBJECTIVE, {"title": args.objective}, OPERATOR)
         document = LocalFileSource([os.path.dirname(source_path)], clock).fetch(source_path)
         summary = run_investigation(lab, objective.entity_id, [(document, LOCAL)], [port], STACK_PROFILE, RUNNER, max_output_tokens=args.max_output_tokens)

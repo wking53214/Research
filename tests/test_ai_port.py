@@ -4,7 +4,7 @@ import json
 import os
 
 import pytest
-from conftest import ISSUERS, TENANT
+from conftest import ISSUERS, LEGACY_MODE, TENANT
 
 from research_lab.ai import (
     STACK_PROFILE,
@@ -48,7 +48,7 @@ def request(excerpt="The Watcher narrates the run record for a person. Every sen
 
 @pytest.fixture
 def slab(db_path, principal, tmp_path):
-    created = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), blob_root=str(tmp_path / "blobs"))
+    created = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), blob_root=str(tmp_path / "blobs"), governance_mode=LEGACY_MODE)
     yield created
     created.close()
 

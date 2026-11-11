@@ -17,7 +17,7 @@ import sys
 import threading
 
 import pytest
-from conftest import ISSUERS, ROOT, TENANT
+from conftest import ISSUERS, LEGACY_MODE, ROOT, TENANT
 
 from research_lab.clock import StepClock
 from research_lab.graph import Graph, PolicyViolation
@@ -139,7 +139,7 @@ lab.close()
 
 
 def test_two_processes_appending_to_one_store(db_path, principal, tmp_path):
-    Lab.create(db_path, TENANT, principal, ISSUERS, StepClock()).close()
+    Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), governance_mode=LEGACY_MODE).close()
     env = dict(os.environ, PYTHONPATH=ROOT + os.pathsep + os.environ.get("PYTHONPATH", ""), PYTHONDONTWRITEBYTECODE="1")
     n = 25
     procs = [

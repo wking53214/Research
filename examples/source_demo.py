@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory() as workdir:
         db = os.path.join(workdir, "lab.sqlite")
         blob_root = os.path.join(workdir, "blobs")
-        lab = Lab.create(db, TENANT, PRINCIPAL, ["governance-board"], clock, blob_root=blob_root)
+        lab = Lab.create(db, TENANT, PRINCIPAL, [], clock, blob_root=blob_root)
 
         github = GitHubSource(transport, clock)
         readme = github.fetch_file("wking53214", "WATCHER_MCU", "README.md", ref="main")

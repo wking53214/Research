@@ -6,7 +6,7 @@ governance disposition resolves it, and upholding it does not withdraw the findi
 import json
 
 import pytest
-from conftest import ISSUERS, TENANT, Chain
+from conftest import ISSUERS, LEGACY_MODE, TENANT, Chain
 
 from research_lab.cli import main
 from research_lab.clock import StepClock
@@ -283,7 +283,7 @@ def test_forged_challenges_edges_and_empty_filings_refused_everywhere(db_path, p
 
 
 def test_full_challenge_lifecycle_replays_and_verifies(db_path, principal, human, ai, reviewer, gov):
-    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock())
+    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), governance_mode=LEGACY_MODE)
     chain = Chain(lab, human, ai)
     f = accepted(lab, chain, reviewer, gov, admit=True)
     a = lab.file_challenge(f, "a", ai, EVIDENCE)
@@ -318,7 +318,7 @@ def test_cli_add_challenge_and_show(capsys, tmp_path):
         captured = capsys.readouterr()
         return code, (json.loads(captured.out) if captured.out.strip() else None), captured.err
 
-    assert run("init", *common, "--issuer", "gov-1")[0] == 0
+    assert run("init", *common, "--issuer", "gov-1", "--unauthenticated-governance")[0] == 0
     objective = run("add", "objective", *common, *actor, "--title", "O")[1]["record"]["entity_id"]
     question = run("add", "question", *common, *actor, "--text", "Q", "--decomposes", objective)[1]["record"]["entity_id"]
     hypothesis = run("add", "hypothesis", *common, "--actor", "model-1", "--actor-kind", "AI", "--text", "H", "--answers", question)[1]["record"]["entity_id"]

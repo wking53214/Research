@@ -4,7 +4,7 @@ import json
 import os
 
 import pytest
-from conftest import ISSUERS, ROOT, TENANT
+from conftest import ISSUERS, LEGACY_MODE, ROOT, TENANT
 
 from research_lab.cli import main
 from research_lab.clock import StepClock
@@ -20,7 +20,7 @@ SYSTEM = Actor("local-filesystem", ActorKind.SYSTEM)
 
 @pytest.fixture
 def slab(db_path, principal, tmp_path):
-    created = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), blob_root=str(tmp_path / "blobs"))
+    created = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), blob_root=str(tmp_path / "blobs"), governance_mode=LEGACY_MODE)
     yield created
     created.close()
 
@@ -77,7 +77,7 @@ def test_blob_store_tenant_must_match(db_path, principal, tmp_path):
     from research_lab.sources import BlobStore
     from research_lab.store import EventStore
 
-    store = EventStore.create(db_path, TENANT, principal, ISSUERS)
+    store = EventStore.create(db_path, TENANT, principal, ISSUERS, governance_mode=LEGACY_MODE)
     with pytest.raises(SourceRefused, match="belongs to tenant 'other'"):
         Lab(store, StepClock(), blobs=BlobStore(str(tmp_path / "blobs"), "other"))
     store.close()
@@ -163,7 +163,7 @@ def run(capsys, *argv):
 def test_cli_add_source_file_and_github_and_verify(capsys, tmp_path, root):
     db = str(tmp_path / "cli.sqlite")
     common = ["--db", db, "--tenant", "acme", "--principal", "alice", "--at", "2026-04-01T12:00:00Z"]
-    assert run(capsys, "init", *common, "--issuer", "gov-1")[0] == 0
+    assert run(capsys, "init", *common, "--issuer", "gov-1", "--unauthenticated-governance")[0] == 0
     code, data, err = run(capsys, "add", "source", *common, "--actor", "fs", "--actor-kind", "SYSTEM", "--kind", "file", "--path", str(root / "a.txt"), "--allow-root", str(root))
     assert code == 0, err
     assert data["created"] and not data["changed"] and data["record"]["body"]["adapter_id"] == "local_file"

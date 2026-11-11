@@ -9,9 +9,12 @@ Two vocabularies:
 Rules (each has a positive and a negative test in tests/test_lifecycle.py):
 
 * Lab code paths can never set ACCEPTED or ADMITTED. check_lab_transition refuses them.
-* ACCEPTED and ADMITTED are written only through check_governance_transition, which requires
-  an issuer id from the genesis governance issuer set and an actor of kind HUMAN or SYSTEM.
-  An AI actor is refused even with a valid issuer id.
+* ACCEPTED and ADMITTED are written only through a governance disposition. In an
+  UNAUTHENTICATED_LEGACY store that is check_governance_transition, which requires an issuer
+  id from the genesis governance issuer set and an actor of kind HUMAN or SYSTEM; an AI
+  actor is refused even with a valid issuer id, but the kind is a claim. In an AUTHENTICATED
+  store it is check_grant_transition, called only after a grant signed by an enrolled key
+  has verified (governance.py, Graph.check_grant); the actor kind is not consulted there.
 * A review transition (to REVIEWED, REPRODUCED or RECOMMENDED) or a governance transition by
   the same actor id as the entity's author is refused: no self-approval.
 * Every finding starts at PROPOSED. AI-origin records therefore enter as proposals, and an
@@ -241,4 +244,23 @@ def check_governance_transition(
         verb = "resolve" if uses_challenge_statuses(kind) else "accept"
         noun = "filed this challenge" if uses_challenge_statuses(kind) else "authored this finding"
         raise SelfReviewError(f"actor {actor.id!r} {noun} and may not {verb} it")
+    _check_in_table(kind, current, target)
+
+
+def check_grant_transition(kind: Kind, current: str, target: str, author_id: str, issuer_id: str) -> None:
+    """Refuse or allow the transition a signed governance grant asks for (AUTHENTICATED mode).
+
+    The same table and the same governance-only rule as check_governance_transition, without
+    the actor-kind and issuer-set checks: in AUTHENTICATED mode authority is the verified
+    signature of an enrolled key, which the caller checks, and the submitting actor is not
+    consulted. No self-approval still holds: the issuer may not be the entity's author."""
+    if not (uses_finding_stages(kind) or uses_challenge_statuses(kind)):
+        raise AuthorityError(f"governance dispositions apply to findings and challenges, not {kind.value}")
+    parse_status(kind, target)
+    if not governance_required(kind, current, target):
+        raise AuthorityError(f"{current} -> {target} is not a governance transition; use a lab transition")
+    if issuer_id == author_id:
+        verb = "resolve" if uses_challenge_statuses(kind) else "accept"
+        noun = "filed this challenge" if uses_challenge_statuses(kind) else "authored this finding"
+        raise SelfReviewError(f"issuer {issuer_id!r} {noun} and may not {verb} it")
     _check_in_table(kind, current, target)

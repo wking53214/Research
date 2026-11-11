@@ -2,7 +2,7 @@ import math
 import sqlite3
 
 import pytest
-from conftest import ISSUERS, TENANT, tamper
+from conftest import ISSUERS, LEGACY_MODE, TENANT, tamper
 
 from research_lab.store import (
     GENESIS,
@@ -23,7 +23,7 @@ from research_lab.store import (
 def store(db_path, principal):
     # These tests exercise the chain layer below policy with bare "NOTE" events, so the store
     # is opened without the policy validator (the test-only opt-out).
-    created = EventStore.create(db_path, TENANT, principal, ISSUERS, unsafe_unvalidated=True)
+    created = EventStore.create(db_path, TENANT, principal, ISSUERS, unsafe_unvalidated=True, governance_mode=LEGACY_MODE)
     yield created
     created.close()
 
@@ -41,6 +41,7 @@ def test_genesis_carries_tenant_schema_issuers_and_principals(store, principal):
     assert genesis.payload == {
         "schema_version": SCHEMA_VERSION,
         "tenant": TENANT,
+        "governance_mode": LEGACY_MODE,
         "governance_issuers": ISSUERS,
         "principals": [principal.id],
     }
@@ -98,7 +99,7 @@ def test_deleted_event_is_detected_as_gap(store, db_path):
 
 def test_deleted_tail_event_is_detected_by_anchor(db_path, principal):
     anchor = MemoryAnchor()
-    store = EventStore.create(db_path, TENANT, principal, ISSUERS, anchor=anchor, unsafe_unvalidated=True)
+    store = EventStore.create(db_path, TENANT, principal, ISSUERS, anchor=anchor, unsafe_unvalidated=True, governance_mode=LEGACY_MODE)
     fill(store)
     head = store.head().seq
     raw = tamper(db_path)
@@ -159,7 +160,7 @@ def test_non_canonical_payload_is_refused(store):
 
 def test_create_over_existing_store_is_refused(store, db_path, principal):
     with pytest.raises(StoreError, match="already has events"):
-        EventStore.create(db_path, TENANT, principal, ISSUERS)
+        EventStore.create(db_path, TENANT, principal, ISSUERS, governance_mode=LEGACY_MODE)
 
 
 def test_open_for_another_tenant_is_refused(store, db_path):
@@ -180,13 +181,13 @@ def test_principal_that_does_not_claim_the_tenant_is_refused(store, db_path):
 
 
 def test_additional_entitled_principal_can_open(db_path, principal):
-    store = EventStore.create(db_path, TENANT, principal, ISSUERS, principals=["alice", "carol"])
+    store = EventStore.create(db_path, TENANT, principal, ISSUERS, principals=["alice", "carol"], governance_mode=LEGACY_MODE)
     store.close()
     other = EventStore.open(db_path, TENANT, Principal("carol", frozenset({TENANT})))
     assert other.genesis()["principals"] == ["alice", "carol"]
     other.close()
     with pytest.raises(AccessRefused):
-        EventStore.create(str(db_path) + ".2", TENANT, principal, ISSUERS, principals=["carol"])
+        EventStore.create(str(db_path) + ".2", TENANT, principal, ISSUERS, principals=["carol"], governance_mode=LEGACY_MODE)
 
 
 def test_open_missing_or_genesis_less_file_is_refused(tmp_path, principal):
@@ -200,7 +201,7 @@ def test_open_missing_or_genesis_less_file_is_refused(tmp_path, principal):
 
 def test_bad_issuers_are_refused(db_path, principal):
     with pytest.raises(StoreError, match="governance_issuers"):
-        EventStore.create(db_path, TENANT, principal, ["ok", ""])
+        EventStore.create(db_path, TENANT, principal, ["ok", ""], governance_mode=LEGACY_MODE)
     with pytest.raises(StoreError):
         EventStore.create(db_path, "", principal, ISSUERS)
 
@@ -216,7 +217,7 @@ def test_event_from_dict_rejects_garbage():
 
 def test_anchor_receives_every_head(db_path, principal):
     anchor = MemoryAnchor()
-    store = EventStore.create(db_path, TENANT, principal, ISSUERS, anchor=anchor, unsafe_unvalidated=True)
+    store = EventStore.create(db_path, TENANT, principal, ISSUERS, anchor=anchor, unsafe_unvalidated=True, governance_mode=LEGACY_MODE)
     fill(store, 2)
     assert [seq for seq, _ in anchor.anchored(TENANT)] == [0, 1, 2]
     assert anchor.anchored(TENANT)[-1][1] == store.head().hash

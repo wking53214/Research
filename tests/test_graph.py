@@ -1,5 +1,5 @@
 import pytest
-from conftest import ISSUERS, TENANT, Chain
+from conftest import ISSUERS, LEGACY_MODE, TENANT, Chain
 
 from research_lab.clock import FixedClock, StepClock
 from research_lab.graph import EdgeType, Graph, GraphError, edge_allowed
@@ -112,7 +112,7 @@ def test_supersede_keeps_old_entity_queryable(lab, chain, human, ai):
 
 
 def test_duplicate_entity_is_refused(db_path, principal, human):
-    lab = Lab.create(db_path, TENANT, principal, ISSUERS, FixedClock("2026-01-01T00:00:00Z"))
+    lab = Lab.create(db_path, TENANT, principal, ISSUERS, FixedClock("2026-01-01T00:00:00Z"), governance_mode=LEGACY_MODE)
     lab.add(Kind.OBJECTIVE, {"title": "same"}, human)
     with pytest.raises(GraphError, match="already exists"):
         lab.add(Kind.OBJECTIVE, {"title": "same"}, human)
@@ -129,7 +129,7 @@ def test_graph_apply_refuses_out_of_order_events(lab):
 
 
 def test_rebuild_equals_live_graph_across_reopen(db_path, principal, human, ai, reviewer, gov):
-    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock())
+    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), governance_mode=LEGACY_MODE)
     chain = Chain(lab, human, ai)
     lab.transition(chain.hypothesis.entity_id, "REJECTED", human, "weak")
     lab.transition(chain.hypothesis.entity_id, "REOPENED", human, "new data")

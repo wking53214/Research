@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from conftest import ISSUERS, TENANT
+from conftest import ISSUERS, LEGACY_MODE, TENANT
 
 from research_lab.ai import (
     MIN_QUOTE_CHARS,
@@ -38,7 +38,7 @@ def world(db_path, principal, tmp_path):
     root.mkdir()
     (root / "a.txt").write_text(TEXT_A, encoding="utf-8")
     (root / "b.txt").write_text(TEXT_B, encoding="utf-8")
-    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), blob_root=str(tmp_path / "blobs"))
+    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), blob_root=str(tmp_path / "blobs"), governance_mode=LEGACY_MODE)
     src = LocalFileSource([str(root)], StepClock())
     docs = [(src.fetch(str(root / "a.txt")), SYSTEM), (src.fetch(str(root / "b.txt")), SYSTEM)]
     a = lab.record_source(docs[0][0], SYSTEM).record.entity_id

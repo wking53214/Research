@@ -11,7 +11,7 @@ import sys
 import types
 
 import pytest
-from conftest import ISSUERS, ROOT, TENANT
+from conftest import ISSUERS, LEGACY_MODE, ROOT, TENANT
 
 from research_lab.ai import (
     STACK_PROFILE,
@@ -382,7 +382,7 @@ def world(db_path, principal, tmp_path, human):
     (root / "b.txt").write_text(TEXT_B, encoding="utf-8")
     local = LocalFileSource([str(root)], StepClock())
     docs = [(local.fetch(str(root / "a.txt")), SYSTEM), (local.fetch(str(root / "b.txt")), SYSTEM)]
-    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), blob_root=str(tmp_path / "blobs"))
+    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), blob_root=str(tmp_path / "blobs"), governance_mode=LEGACY_MODE)
     objective = lab.add(Kind.OBJECTIVE, {"title": "Which component is the AI interaction boundary?"}, human)
     ids = [lab.record_source(doc, actor).record.entity_id for doc, actor in docs]
     yield {"lab": lab, "objective": objective.entity_id, "docs": docs, "sources": ids, "request": build_request(lab, ids), "tmp": tmp_path}

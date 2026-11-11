@@ -30,7 +30,7 @@ def actor(name: str = "alice", kind: str = "HUMAN") -> list[str]:
 
 def test_full_flow_through_the_cli(capsys, tmp_path):
     db = str(tmp_path / "cli.sqlite")
-    code, data, _ = run(capsys, "init", *common(db), "--issuer", "gov-1")
+    code, data, _ = run(capsys, "init", *common(db), "--issuer", "gov-1", "--unauthenticated-governance")
     assert code == 0 and data["genesis"]["governance_issuers"] == ["gov-1"] and data["genesis"]["tenant"] == "acme"
 
     code, data, _ = run(capsys, "add", "objective", *common(db), *actor(), "--title", "Objective")
@@ -111,8 +111,8 @@ def test_cli_verify_reports_tampering_and_other_commands_refuse(capsys, tmp_path
 
 
 def test_init_is_deterministic_with_fixed_clock(capsys, tmp_path):
-    one = run(capsys, "init", *common(str(tmp_path / "one.sqlite")), "--issuer", "g")[1]
-    two = run(capsys, "init", *common(str(tmp_path / "two.sqlite")), "--issuer", "g")[1]
+    one = run(capsys, "init", *common(str(tmp_path / "one.sqlite")), "--issuer", "g", "--unauthenticated-governance")[1]
+    two = run(capsys, "init", *common(str(tmp_path / "two.sqlite")), "--issuer", "g", "--unauthenticated-governance")[1]
     assert one["head_hash"] == two["head_hash"]
 
 
@@ -128,7 +128,7 @@ def test_python_dash_m_entry_point(tmp_path):
     assert version.returncode == 0 and __version__ in version.stdout
     db = str(tmp_path / "sub.sqlite")
     init = subprocess.run(
-        [sys.executable, "-m", "research_lab", "init", *common(db), "--issuer", "gov-1"],
+        [sys.executable, "-m", "research_lab", "init", *common(db), "--issuer", "gov-1", "--unauthenticated-governance"],
         capture_output=True, text=True, env=env, cwd=ROOT,
     )
     assert init.returncode == 0, init.stderr

@@ -14,7 +14,7 @@ The first tests are the exact B1 attack from the independent verification, at bo
 import sqlite3
 
 import pytest
-from conftest import ISSUERS, TENANT, Chain
+from conftest import ISSUERS, LEGACY_MODE, TENANT, Chain
 
 from research_lab.canonical import canonical_json
 from research_lab.cli import main
@@ -392,7 +392,7 @@ def test_verify_bundle_detects_a_policy_violation_from_the_file_alone(db_path, p
 
 
 def test_legitimate_full_lifecycle_replays_and_verifies(db_path, principal, human, ai, reviewer, gov):
-    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock())
+    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), governance_mode=LEGACY_MODE)
     chain = Chain(lab, human, ai)
     lab.transition(chain.hypothesis.entity_id, "REJECTED", human, "weak")
     lab.transition(chain.hypothesis.entity_id, "REOPENED", human, "new data")

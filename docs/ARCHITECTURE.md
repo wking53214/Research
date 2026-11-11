@@ -1,4 +1,4 @@
-# Architecture (increment 1)
+# Architecture
 
 Labels: EXECUTED, INSPECTED, INFERRED, UNKNOWN. Everything in this file describes code that
 exists in `research_lab/` and is exercised by `tests/` (EXECUTED) unless marked otherwise.
@@ -34,9 +34,9 @@ canonical JSON of `{seq, tenant, event_type, payload, prev_hash}`. Event types:
 
 | Type | Payload | Written by |
 |---|---|---|
-| `GENESIS` | `schema_version`, `tenant`, `governance_issuers`, `principals` | `EventStore.create` only, seq 0 only |
+| `GENESIS` | `schema_version` (2), `tenant`, `governance_mode`, `governance_issuers` (issuer records with public keys, or plain ids in legacy mode), `grant_skew_seconds` (AUTHENTICATED only), `principals`. A version 1 genesis (`schema_version`, `tenant`, `governance_issuers` as ids, `principals`) still opens, as legacy | `EventStore.create` only, seq 0 only |
 | `RECORD` | `record` (version 1 of an entity), `edges` (from this record) | `Lab.add` |
-| `TRANSITION` | `record` (next version), `from`, `to`, `actor`, `reason`, `governance` (null or `{issuer_id}`) | `Lab.transition`, `Lab.govern` |
+| `TRANSITION` | `record` (next version), `from`, `to`, `actor`, `reason`, `governance` (null; `{issuer_id, grant, signature}` in an AUTHENTICATED store; `{issuer_id}` in a legacy store) | `Lab.transition`, `Lab.apply_grant`, `Lab.govern` |
 | `EDGE` | `from`, `edge`, `to`, `actor`, `created_at` | `Lab.link` |
 | `RUN_STARTED`, `RUN_PROGRESS`, `RUN_COMPLETED`, `RUN_FAILED`, `RUN_INTERRUPTED` | `plan`, `task`, `step`, `idempotency_key`, `attempt`, `actor`, `created_at`, plus `data`, `output`, `error` or `output_state` | `Runner` |
 
@@ -103,7 +103,11 @@ refuses governance-only stages outright, then checks the table, then refuses a r
 when the actor id equals the author id. `check_governance_transition` requires kind finding, a
 transition that `governance_required()` names (to ACCEPTED, to ADMITTED, or to WITHDRAWN
 from ACCEPTED or ADMITTED), an issuer in the genesis set, a HUMAN or SYSTEM actor, an actor
-different from the author, and a table-legal move. `Graph.check_plan_closable` refuses to
+different from the author, and a table-legal move. That function is the legacy path. In an
+AUTHENTICATED store `check_grant_transition` applies the same kind rule, the same
+`governance_required()` rule and the same table, compares the issuer id (not the actor id)
+with the author, and does not consult the actor kind: authority is the grant's signature,
+checked by `Graph.check_grant` (next section). `Graph.check_plan_closable` refuses to
 close a plan whose tasks are not all COMPLETED; `Lab.transition` and replay both call it.
 
 Initial statuses are not chosen by the caller: findings start PROPOSED, everything else OPEN.
@@ -123,6 +127,29 @@ A CHALLENGES edge is never accepted in an EDGE event. Queries live on the graph:
 `findings_with_open_challenges`, `challenge_summary`; `Lab.file_challenge` is the
 convenience writer and the CLI has `add challenge`.
 
+## Governance port: enrollment, authorization, enforcement
+
+Specified in `docs/GOVERNANCE_PORT.md`. Three concerns are kept apart:
+
+* Enrollment is the genesis event. `governance.read_genesis` validates it on creation and
+  on every replay and yields the mode (`AUTHENTICATED` or `UNAUTHENTICATED_LEGACY`), the
+  issuer ids and, in AUTHENTICATED mode, the issuer records with their Ed25519 public keys.
+* Authorization happens outside the lab: a governance body signs a GovernanceGrant. The
+  package has no signer. `governance.py` only defines the bytes (`grant_signing_bytes`:
+  a domain line plus the canonical JSON of eleven fields) and the stateless signature check
+  (`verify_grant_signature`), which calls the verify-only `crypto/ed25519.py`.
+* Enforcement is `Graph.check_grant`, the stateful half: tenant, enrolled key and
+  signature, unused nonce, current version and digest, legal governance transition, time
+  window. `Graph._check_transition` calls it for every governance TRANSITION in an
+  AUTHENTICATED store, so the store's write-time validator and every replay share it;
+  `Lab.apply_grant` calls it first only to refuse early with a precise error.
+
+The graph derives three things from the log for this: `governance_keys`, the set of used
+grant nonces, and `dispositions` (every governance disposition with `authenticated` true
+or false), which `verify`, `show` and `verify_bundle` report. Layering: `governance.py`
+imports `canonical`, `clock`, `lifecycle` and `crypto`; `store.py` and `graph.py` import
+`governance.py`; nothing in `governance.py` knows about the store or the graph.
+
 ## Orchestration
 
 Run state is derived from RUN_* events in the graph. `Runner.run()` first reconciles (any task
@@ -137,7 +164,12 @@ task is not COMPLETED.
 A bundle is a header line plus one canonical-JSON line per event. `export_bundle` runs
 `verify()` first and refuses to write otherwise. `verify_bundle` rebuilds the chain from the
 file, checks the tenant from the header against the genesis and every row, and checks the
-header's count, head hash and issuers. Import and merge do not exist.
+header's count, head hash, governance mode and issuers. Its policy replay re-verifies every
+governance grant against the public keys in the file's own genesis, so a bundle of an
+AUTHENTICATED store can be checked with nothing but the file; `expected_genesis_hash` and
+`require_authenticated` let the verifier insist on a pinned genesis and on the mode. The
+header's `store_schema_version` is the genesis's (1 for a store written before the
+governance port, 2 otherwise). Import and merge do not exist.
 
 ## Ports and adapters (increment 2a: sources)
 
@@ -240,5 +272,13 @@ attempt), so resume works from the store alone and the idempotency check survive
   (validation against a stale in-memory graph, outside the append transaction), the check
   moved inside the store's write transaction with catch-up to the real head. One Lab per
   thread is enforced rather than locked, as the simpler safe shape.
+* Governance authority moved from a claim to a signature. The mode is fixed at genesis and
+  defaults to AUTHENTICATED; the old behaviour is kept as an explicit, reported legacy mode
+  so that old stores still open. `apply_grant` is a separate method from `govern`, because
+  a mode-aware `govern` would let a caller believe it used the authenticated path when it
+  had not. The verifier is pure standard library and verify-only; a test-only signer lives
+  under `tests/`. Grant time checks use the timestamp of the version the event writes, so
+  that replay and the write path decide identically; the price is that the lab clock is
+  trusted (SECURITY.md). Rotation and revocation of issuer keys are not designed in.
 * Timestamps come only from injected clocks. The CLI uses the wall clock unless `--at` is
   given. Ordering and integrity come from the chain sequence, never from timestamps.

@@ -20,6 +20,18 @@ from research_lab.store import Principal  # noqa: E402
 
 TENANT = "acme"
 ISSUERS = ["gov-1"]
+# These fixtures predate the authenticated governance port and use plain issuer ids, so they
+# say explicitly that their stores are UNAUTHENTICATED_LEGACY: a governance disposition in
+# them is a claimed actor kind plus a public issuer id, as in increment 1. The authenticated
+# port is tested in tests/test_governance_*.py with enrolled (test-only) keys.
+LEGACY_MODE = "UNAUTHENTICATED_LEGACY"
+
+
+def pytest_configure(config) -> None:
+    # Creating a legacy store warns (UnauthenticatedGovernanceWarning). Nearly every fixture
+    # here does so on purpose, so the warning is silenced for the run instead of printed a
+    # few hundred times; tests/test_governance_modes.py asserts that it is raised.
+    config.addinivalue_line("filterwarnings", "ignore::research_lab.governance.UnauthenticatedGovernanceWarning")
 
 
 @pytest.fixture
@@ -59,7 +71,7 @@ def db_path(tmp_path) -> str:
 
 @pytest.fixture
 def lab(db_path, principal, clock):
-    created = Lab.create(db_path, TENANT, principal, ISSUERS, clock)
+    created = Lab.create(db_path, TENANT, principal, ISSUERS, clock, governance_mode=LEGACY_MODE)
     yield created
     created.close()
 

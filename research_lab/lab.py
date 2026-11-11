@@ -1,17 +1,37 @@
 """Lab: the write path. Validates against lifecycle, authority and edge rules, appends to the
 store, and applies the same event to the live graph.
 
-The Lab never sets ACCEPTED or ADMITTED through transition(); only govern() can, and only
-with a genesis governance issuer and a HUMAN or SYSTEM actor who is not the author. There is
-no API anywhere to change the governance issuer set after genesis.
+The Lab never sets ACCEPTED or ADMITTED through transition(). A governance disposition is
+written in exactly one of two ways, fixed by the store's genesis:
+
+* AUTHENTICATED store: apply_grant(), with a grant signed by a key the genesis enrolled.
+  The submitting actor may be anyone; the signature is the authority. govern() is refused.
+* UNAUTHENTICATED_LEGACY store: govern(), with a genesis issuer id and a HUMAN or SYSTEM
+  actor who is not the author. That is a claim, not authentication, and is reported so.
+
+There is no API anywhere to change the governance issuers, their keys or the mode after
+genesis.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Mapping, Sequence
 
-from .clock import Clock
+from .clock import Clock, format_utc, parse_utc
+from .governance import (
+    DEFAULT_GRANT_SKEW_SECONDS,
+    DEFAULT_GRANT_TTL_SECONDS,
+    GRANT_VERSION,
+    MODE_AUTHENTICATED,
+    GrantRefused,
+    check_grant_fields,
+    expectation_problems,
+    grant_provenance,
+    grant_signing_bytes,
+    split_signed_grant,
+)
 from .graph import (
     EVENT_EDGE,
     EVENT_RECORD,
@@ -80,8 +100,21 @@ class Supersession:
     retired: bool
 
 
-def verify_store(store: EventStore, require_signed: bool = False, live_graph: Graph | None = None) -> VerifyResult:
+def verify_store(
+    store: EventStore,
+    require_signed: bool = False,
+    live_graph: Graph | None = None,
+    *,
+    expected_genesis_hash: str | None = None,
+    require_authenticated: bool = False,
+) -> VerifyResult:
     """Chain verification, then a policy replay of every event through Graph.check().
+
+    In an AUTHENTICATED store the replay re-verifies the signature of every governance
+    grant. result.governance reports the mode, the genesis hash and each disposition.
+    expected_genesis_hash and require_authenticated turn two things a careful verifier
+    checks by hand into problems: a genesis that is not the pinned one, and governance that
+    is not authenticated.
 
     A store whose chain verifies but which holds an event that breaks the lab's rules (for
     example a governance disposition by an AI actor appended behind the Lab's back) fails
@@ -91,6 +124,7 @@ def verify_store(store: EventStore, require_signed: bool = False, live_graph: Gr
     snapshot = store.snapshot()
     result = store.verify(require_signed, snapshot=snapshot)
     if not result.ok:
+        result.problems.extend(expectation_problems(None, expected_genesis_hash, require_authenticated))
         return result
     events = snapshot[0]
     replay = Graph()
@@ -106,9 +140,12 @@ def verify_store(store: EventStore, require_signed: bool = False, live_graph: Gr
                     result.problems.append(f"live graph differs from a replay of the log up to seq {event.seq}")
     except PolicyViolation as exc:
         result.problems.append(f"policy violation: {exc}")
+        result.problems.extend(expectation_problems(None, expected_genesis_hash, require_authenticated))
         result.ok = False
         return result
     result.policy_checked = True
+    result.governance = replay.governance_report()
+    result.problems.extend(expectation_problems(result.governance, expected_genesis_hash, require_authenticated))
     if not compared:
         result.problems.append(f"live graph is ahead of the log (applied_seq {live_graph.applied_seq})")
     result.ok = not result.problems
@@ -145,14 +182,30 @@ class Lab:
         path: str,
         tenant: str,
         principal: Principal,
-        governance_issuers: Sequence[str],
+        governance_issuers: Sequence[Any],
         clock: Clock,
         principals: Sequence[str] | None = None,
         signer: Signer | None = None,
         anchor: Anchor | None = None,
         blob_root: str | None = None,
+        *,
+        governance_mode: str = MODE_AUTHENTICATED,
+        grant_skew_seconds: int = DEFAULT_GRANT_SKEW_SECONDS,
     ) -> "Lab":
-        store = EventStore.create(path, tenant, principal, governance_issuers, principals, signer, anchor)
+        """Create a store and wrap it. governance_issuers is a sequence of issuer records
+        with public keys (governance.make_issuer) unless governance_mode is explicitly
+        "UNAUTHENTICATED_LEGACY", in which case it is a sequence of plain issuer ids."""
+        store = EventStore.create(
+            path,
+            tenant,
+            principal,
+            governance_issuers,
+            principals,
+            signer,
+            anchor,
+            governance_mode=governance_mode,
+            grant_skew_seconds=grant_skew_seconds,
+        )
         blobs = BlobStore(blob_root, tenant) if blob_root is not None else None
         return cls(store, clock, blobs=blobs)
 
@@ -186,6 +239,11 @@ class Lab:
     @property
     def tenant(self) -> str:
         return self.store.tenant
+
+    @property
+    def governance_mode(self) -> str:
+        """AUTHENTICATED or UNAUTHENTICATED_LEGACY, as fixed by the genesis event."""
+        return str(self.graph.governance_mode)
 
     # internals
 
@@ -315,11 +373,18 @@ class Lab:
         """Record a governance disposition: on a finding ACCEPTED, ADMITTED, or WITHDRAWN
         from ACCEPTED or ADMITTED; on a challenge UPHELD or DISMISSED.
 
-        The issuer must be in the genesis issuer set, the actor HUMAN or SYSTEM and not the
-        author (for a challenge, not the filer). This is the only code path that writes those
-        transitions. It records the disposition; it does not authorize any production change,
-        and upholding a challenge does not withdraw the challenged finding.
+        UNAUTHENTICATED_LEGACY stores only. The issuer must be in the genesis issuer set, the
+        actor HUMAN or SYSTEM and not the author (for a challenge, not the filer). Those are
+        claims: nothing here authenticates them. An AUTHENTICATED store refuses this call;
+        use apply_grant() with a signed grant there. It records the disposition; it does not
+        authorize any production change, and upholding a challenge does not withdraw the
+        challenged finding.
         """
+        if self.graph.governance_mode == MODE_AUTHENTICATED:
+            raise GrantRefused(
+                "this store is AUTHENTICATED: Lab.govern (an actor kind and an issuer id, both claims) is refused; "
+                "submit a grant signed by an enrolled governance key with Lab.apply_grant"
+            )
         reason = self._check_reason(reason)
         to_value = self._status_value(to)
         node = self.graph.node(entity_id)
@@ -342,6 +407,89 @@ class Lab:
                 "actor": actor.to_dict(),
                 "reason": reason,
                 "governance": {"issuer_id": issuer_id},
+            },
+        )
+        return record
+
+    def grant_template(
+        self,
+        entity_id: str,
+        to: str,
+        issuer_id: str,
+        reason: str,
+        nonce: str,
+        issued_at: str | None = None,
+        expires_at: str | None = None,
+    ) -> dict[str, Any]:
+        """The unsigned grant for disposing the CURRENT version of an entity, ready to hand to
+        an external signer together with grant_signing_bytes(). It reads state and signs
+        nothing: tenant, entity_version and record_digest come from the graph; the nonce
+        (16 to 32 bytes of lowercase hex, single use) is the signer's choice and is passed in.
+        issued_at defaults to the lab clock, expires_at to issued_at plus 24 hours. A template
+        is not validated against the lifecycle here; apply_grant does that."""
+        node = self.graph.node(entity_id)
+        if issued_at is None:
+            issued_at = self.clock.now()
+        if expires_at is None:
+            expires_at = format_utc(parse_utc(issued_at) + timedelta(seconds=DEFAULT_GRANT_TTL_SECONDS))
+        return check_grant_fields(
+            {
+                "v": GRANT_VERSION,
+                "tenant": self.tenant,
+                "entity_id": node.entity_id,
+                "entity_version": node.latest.version,
+                "record_digest": node.latest.digest,
+                "to": self._status_value(to),
+                "issuer_id": issuer_id,
+                "nonce": nonce,
+                "issued_at": issued_at,
+                "expires_at": expires_at,
+                "reason": reason,
+            }
+        )
+
+    @staticmethod
+    def grant_signing_bytes(grant: Mapping[str, Any]) -> bytes:
+        """The exact bytes an external signer must sign for this grant (signature excluded)."""
+        return grant_signing_bytes({name: value for name, value in grant.items() if name != "signature"})
+
+    def apply_grant(self, grant: Mapping[str, Any], actor: Actor) -> Record:
+        """Record the governance disposition a signed grant authorizes (AUTHENTICATED stores).
+
+        grant is the eleven grant fields plus "signature" (128 hex characters). The actor is
+        whoever submits it and may be of any kind, an AI included: submitting is not
+        authority. The grant must verify under the key the genesis enrolled for its issuer
+        and must name this tenant, the entity's current version and that version's digest, a
+        legal governance transition, a time window that contains the lab clock, and a nonce
+        never used before. The same checks run again inside the store's write transaction
+        and on every replay. A refusal writes nothing.
+        """
+        if self.graph.governance_mode != MODE_AUTHENTICATED:
+            raise GrantRefused(
+                f"this store's governance mode is {self.graph.governance_mode}: it enrolls no keys, so no grant "
+                "can be verified; Lab.govern is the (unauthenticated) path here"
+            )
+        if not isinstance(actor, Actor):
+            raise RecordError("actor must be an Actor")
+        fields, signature = split_signed_grant(grant)
+        now = self.clock.now()
+        self.graph.check_grant({**fields, "signature": signature}, now)
+        node = self.graph.node(fields["entity_id"])
+        record = node.latest.next_version(
+            origin=actor,
+            created_at=now,
+            disposition=fields["to"],
+            provenance=(grant_provenance(fields),),
+        )
+        self._emit(
+            EVENT_TRANSITION,
+            {
+                "record": record.to_dict(),
+                "from": node.status,
+                "to": fields["to"],
+                "actor": actor.to_dict(),
+                "reason": fields["reason"],
+                "governance": {"issuer_id": fields["issuer_id"], "grant": fields, "signature": signature},
             },
         )
         return record
@@ -453,7 +601,7 @@ class Lab:
         The old entity is retired through a lab transition only where the lab may do that:
         threads move to SUPERSEDED, findings below ACCEPTED move to WITHDRAWN. A finding at
         ACCEPTED or ADMITTED is left exactly as it is; only a governance disposition
-        (Lab.govern to WITHDRAWN) may withdraw it. An entity already terminal (WITHDRAWN or
+        (Lab.apply_grant, or Lab.govern in a legacy store, to WITHDRAWN) may withdraw it. An entity already terminal (WITHDRAWN or
         SUPERSEDED) is also left as it is. The result says which happened. The old entity and
         all its versions stay in the graph.
         """

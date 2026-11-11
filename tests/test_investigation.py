@@ -3,7 +3,7 @@ interruption and resume, idempotent provider calls. Offline and deterministic. E
 recording built here is synthetic test data."""
 
 import pytest
-from conftest import ISSUERS, TENANT
+from conftest import ISSUERS, LEGACY_MODE, TENANT
 
 from research_lab import investigation as investigation_module
 from research_lab.ai import (
@@ -66,7 +66,7 @@ def world(db_path, principal, tmp_path, human):
     (root / "b.txt").write_text(TEXT_B, encoding="utf-8")
     local = LocalFileSource([str(root)], StepClock())
     docs = [(local.fetch(str(root / "a.txt")), SYSTEM), (local.fetch(str(root / "b.txt")), SYSTEM)]
-    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), blob_root=str(tmp_path / "blobs"))
+    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), blob_root=str(tmp_path / "blobs"), governance_mode=LEGACY_MODE)
     objective = lab.add(Kind.OBJECTIVE, {"title": "Which component is the AI interaction boundary?"}, human)
     ids = [lab.record_source(doc, actor).record.entity_id for doc, actor in docs]
     req = build_request(lab, ids, settings=SETTINGS)

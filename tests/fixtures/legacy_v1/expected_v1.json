@@ -1,0 +1,438 @@
+{
+ "challenge": "challenge_ab2b9132a992bee5",
+ "events": 14,
+ "finding_f": "finding_55cf24a7c9deeda6",
+ "finding_g": "finding_461e4ec09b28e0a8",
+ "graph": {
+  "applied_seq": 13,
+  "edges": [
+   {
+    "actor_id": "model-1",
+    "created_at": "2026-02-01T00:00:11Z",
+    "edge": "CHALLENGES",
+    "from": "challenge_ab2b9132a992bee5",
+    "seq": 12,
+    "to": "finding_55cf24a7c9deeda6"
+   }
+  ],
+  "governance_issuers": [
+   "gov-1"
+  ],
+  "nodes": {
+   "challenge_ab2b9132a992bee5": {
+    "author": {
+     "id": "model-1",
+     "kind": "AI",
+     "model_family": "family",
+     "provider": "vendor"
+    },
+    "entity_id": "challenge_ab2b9132a992bee5",
+    "kind": "challenge",
+    "status": "DISMISSED",
+    "versions": [
+     {
+      "body": {
+       "reason": "looks wrong"
+      },
+      "created_at": "2026-02-01T00:00:11Z",
+      "digest": "f9f7f200a996ccac9ce1e1a674a3be9cc829939528c231fcb51e768f14b5ab2b",
+      "disposition": "OPEN",
+      "entity_digest": "ab2b9132a992bee505fb8a5cc10a635054e72b6a08f35d31b1fe5947b6ff7f0a",
+      "entity_id": "challenge_ab2b9132a992bee5",
+      "kind": "challenge",
+      "origin": {
+       "id": "model-1",
+       "kind": "AI",
+       "model_family": "family",
+       "provider": "vendor"
+      },
+      "parents": [],
+      "provenance": [
+       {
+        "ref": "r1",
+        "type": "evidence_ref"
+       }
+      ],
+      "tenant": "acme",
+      "version": 1
+     },
+     {
+      "body": {
+       "reason": "looks wrong"
+      },
+      "created_at": "2026-02-01T00:00:12Z",
+      "digest": "1f17b156a8f7d8b1f03009eb7071fb6248a865b6b3d528d94a26c71b0feac753",
+      "disposition": "DISMISSED",
+      "entity_digest": "ab2b9132a992bee505fb8a5cc10a635054e72b6a08f35d31b1fe5947b6ff7f0a",
+      "entity_id": "challenge_ab2b9132a992bee5",
+      "kind": "challenge",
+      "origin": {
+       "id": "gov-1",
+       "kind": "HUMAN"
+      },
+      "parents": [
+       {
+        "entity_id": "challenge_ab2b9132a992bee5",
+        "version": 1
+       }
+      ],
+      "provenance": [
+       {
+        "issuer_id": "gov-1",
+        "reason": "not persuasive",
+        "type": "governance_disposition"
+       }
+      ],
+      "tenant": "acme",
+      "version": 2
+     }
+    ]
+   },
+   "finding_461e4ec09b28e0a8": {
+    "author": {
+     "id": "model-1",
+     "kind": "AI",
+     "model_family": "family",
+     "provider": "vendor"
+    },
+    "entity_id": "finding_461e4ec09b28e0a8",
+    "kind": "finding",
+    "status": "RECOMMENDED",
+    "versions": [
+     {
+      "body": {
+       "text": "G"
+      },
+      "created_at": "2026-02-01T00:00:02Z",
+      "digest": "f1f280820ee31e0692d48bc9df1e6286a8e89eb8ab649bb36bca409d8d64c3d3",
+      "disposition": "PROPOSED",
+      "entity_digest": "461e4ec09b28e0a87a29b99008e3d630cfd007b8df41990e307842bb89ac6eca",
+      "entity_id": "finding_461e4ec09b28e0a8",
+      "evidence_label": "INFERRED",
+      "kind": "finding",
+      "origin": {
+       "id": "model-1",
+       "kind": "AI",
+       "model_family": "family",
+       "provider": "vendor"
+      },
+      "parents": [],
+      "provenance": [],
+      "tenant": "acme",
+      "version": 1
+     },
+     {
+      "body": {
+       "text": "G"
+      },
+      "created_at": "2026-02-01T00:00:06Z",
+      "digest": "49414f9e70664e87a3fd08d80da4dfe70baffabafd2dea167702117338bbef8f",
+      "disposition": "REVIEWED",
+      "entity_digest": "461e4ec09b28e0a87a29b99008e3d630cfd007b8df41990e307842bb89ac6eca",
+      "entity_id": "finding_461e4ec09b28e0a8",
+      "evidence_label": "INFERRED",
+      "kind": "finding",
+      "origin": {
+       "id": "bob",
+       "kind": "HUMAN"
+      },
+      "parents": [
+       {
+        "entity_id": "finding_461e4ec09b28e0a8",
+        "version": 1
+       }
+      ],
+      "provenance": [
+       {
+        "reason": "r",
+        "type": "transition"
+       }
+      ],
+      "tenant": "acme",
+      "version": 2
+     },
+     {
+      "body": {
+       "text": "G"
+      },
+      "created_at": "2026-02-01T00:00:07Z",
+      "digest": "a50709b60c2857e21d231879e2d9e6fb2ef497cadb4861a17bc887056dd43cfd",
+      "disposition": "REPRODUCED",
+      "entity_digest": "461e4ec09b28e0a87a29b99008e3d630cfd007b8df41990e307842bb89ac6eca",
+      "entity_id": "finding_461e4ec09b28e0a8",
+      "evidence_label": "INFERRED",
+      "kind": "finding",
+      "origin": {
+       "id": "bob",
+       "kind": "HUMAN"
+      },
+      "parents": [
+       {
+        "entity_id": "finding_461e4ec09b28e0a8",
+        "version": 2
+       }
+      ],
+      "provenance": [
+       {
+        "reason": "r",
+        "type": "transition"
+       }
+      ],
+      "tenant": "acme",
+      "version": 3
+     },
+     {
+      "body": {
+       "text": "G"
+      },
+      "created_at": "2026-02-01T00:00:08Z",
+      "digest": "c069299bc868554e82ce6e99921e506614a8d6f1beb930c503dc54bedd2edcba",
+      "disposition": "RECOMMENDED",
+      "entity_digest": "461e4ec09b28e0a87a29b99008e3d630cfd007b8df41990e307842bb89ac6eca",
+      "entity_id": "finding_461e4ec09b28e0a8",
+      "evidence_label": "INFERRED",
+      "kind": "finding",
+      "origin": {
+       "id": "bob",
+       "kind": "HUMAN"
+      },
+      "parents": [
+       {
+        "entity_id": "finding_461e4ec09b28e0a8",
+        "version": 3
+       }
+      ],
+      "provenance": [
+       {
+        "reason": "r",
+        "type": "transition"
+       }
+      ],
+      "tenant": "acme",
+      "version": 4
+     }
+    ]
+   },
+   "finding_55cf24a7c9deeda6": {
+    "author": {
+     "id": "model-1",
+     "kind": "AI",
+     "model_family": "family",
+     "provider": "vendor"
+    },
+    "entity_id": "finding_55cf24a7c9deeda6",
+    "kind": "finding",
+    "status": "ADMITTED",
+    "versions": [
+     {
+      "body": {
+       "text": "F"
+      },
+      "created_at": "2026-02-01T00:00:01Z",
+      "digest": "36a31502d226f49c04a0972a0ec5d54ea2b4aa4b3d3d1aebe04e628164c98744",
+      "disposition": "PROPOSED",
+      "entity_digest": "55cf24a7c9deeda682760831c1d6a8d491ba829912ac06d4b7b1037d4a957cd7",
+      "entity_id": "finding_55cf24a7c9deeda6",
+      "evidence_label": "INFERRED",
+      "kind": "finding",
+      "origin": {
+       "id": "model-1",
+       "kind": "AI",
+       "model_family": "family",
+       "provider": "vendor"
+      },
+      "parents": [],
+      "provenance": [],
+      "tenant": "acme",
+      "version": 1
+     },
+     {
+      "body": {
+       "text": "F"
+      },
+      "created_at": "2026-02-01T00:00:03Z",
+      "digest": "0bb9d6744bfb72bc2061715b04f7e6c0f93f6bb8a190d36b9e052823b59bffa0",
+      "disposition": "REVIEWED",
+      "entity_digest": "55cf24a7c9deeda682760831c1d6a8d491ba829912ac06d4b7b1037d4a957cd7",
+      "entity_id": "finding_55cf24a7c9deeda6",
+      "evidence_label": "INFERRED",
+      "kind": "finding",
+      "origin": {
+       "id": "bob",
+       "kind": "HUMAN"
+      },
+      "parents": [
+       {
+        "entity_id": "finding_55cf24a7c9deeda6",
+        "version": 1
+       }
+      ],
+      "provenance": [
+       {
+        "reason": "r",
+        "type": "transition"
+       }
+      ],
+      "tenant": "acme",
+      "version": 2
+     },
+     {
+      "body": {
+       "text": "F"
+      },
+      "created_at": "2026-02-01T00:00:04Z",
+      "digest": "e809e8325bc7c380a6546dc19e3e1020d5a7a774845714df07b6b5a30e37466b",
+      "disposition": "REPRODUCED",
+      "entity_digest": "55cf24a7c9deeda682760831c1d6a8d491ba829912ac06d4b7b1037d4a957cd7",
+      "entity_id": "finding_55cf24a7c9deeda6",
+      "evidence_label": "INFERRED",
+      "kind": "finding",
+      "origin": {
+       "id": "bob",
+       "kind": "HUMAN"
+      },
+      "parents": [
+       {
+        "entity_id": "finding_55cf24a7c9deeda6",
+        "version": 2
+       }
+      ],
+      "provenance": [
+       {
+        "reason": "r",
+        "type": "transition"
+       }
+      ],
+      "tenant": "acme",
+      "version": 3
+     },
+     {
+      "body": {
+       "text": "F"
+      },
+      "created_at": "2026-02-01T00:00:05Z",
+      "digest": "10d145397a30a2c263b9b1d8459cfbc19431fde016fcb3e9b79a207cb87e8819",
+      "disposition": "RECOMMENDED",
+      "entity_digest": "55cf24a7c9deeda682760831c1d6a8d491ba829912ac06d4b7b1037d4a957cd7",
+      "entity_id": "finding_55cf24a7c9deeda6",
+      "evidence_label": "INFERRED",
+      "kind": "finding",
+      "origin": {
+       "id": "bob",
+       "kind": "HUMAN"
+      },
+      "parents": [
+       {
+        "entity_id": "finding_55cf24a7c9deeda6",
+        "version": 3
+       }
+      ],
+      "provenance": [
+       {
+        "reason": "r",
+        "type": "transition"
+       }
+      ],
+      "tenant": "acme",
+      "version": 4
+     },
+     {
+      "body": {
+       "text": "F"
+      },
+      "created_at": "2026-02-01T00:00:09Z",
+      "digest": "580a249212587c799635cc6f1c8e720070ac946a54a351ad19e4fe4341235b03",
+      "disposition": "ACCEPTED",
+      "entity_digest": "55cf24a7c9deeda682760831c1d6a8d491ba829912ac06d4b7b1037d4a957cd7",
+      "entity_id": "finding_55cf24a7c9deeda6",
+      "evidence_label": "INFERRED",
+      "kind": "finding",
+      "origin": {
+       "id": "gov-1",
+       "kind": "HUMAN"
+      },
+      "parents": [
+       {
+        "entity_id": "finding_55cf24a7c9deeda6",
+        "version": 4
+       }
+      ],
+      "provenance": [
+       {
+        "issuer_id": "gov-1",
+        "reason": "board accepts",
+        "type": "governance_disposition"
+       }
+      ],
+      "tenant": "acme",
+      "version": 5
+     },
+     {
+      "body": {
+       "text": "F"
+      },
+      "created_at": "2026-02-01T00:00:10Z",
+      "digest": "5231d781bd342ff428831aa876d78bbed71576a58337cfbe289db66fd277bedc",
+      "disposition": "ADMITTED",
+      "entity_digest": "55cf24a7c9deeda682760831c1d6a8d491ba829912ac06d4b7b1037d4a957cd7",
+      "entity_id": "finding_55cf24a7c9deeda6",
+      "evidence_label": "INFERRED",
+      "kind": "finding",
+      "origin": {
+       "id": "sys-1",
+       "kind": "SYSTEM"
+      },
+      "parents": [
+       {
+        "entity_id": "finding_55cf24a7c9deeda6",
+        "version": 5
+       }
+      ],
+      "provenance": [
+       {
+        "issuer_id": "gov-1",
+        "reason": "admitted",
+        "type": "governance_disposition"
+       }
+      ],
+      "tenant": "acme",
+      "version": 6
+     }
+    ]
+   },
+   "objective_4fca273b29eeffd5": {
+    "author": {
+     "id": "alice",
+     "kind": "HUMAN"
+    },
+    "entity_id": "objective_4fca273b29eeffd5",
+    "kind": "objective",
+    "status": "OPEN",
+    "versions": [
+     {
+      "body": {
+       "title": "O"
+      },
+      "created_at": "2026-02-01T00:00:00Z",
+      "digest": "86925495d528a44c4deeef12b3e43a89d408bd5ea8529cb8feebcf8d6c6f46b6",
+      "disposition": "OPEN",
+      "entity_digest": "4fca273b29eeffd5bffff5c0f5d265974f409a4f508cad9d1fe5bfc121ca5dcb",
+      "entity_id": "objective_4fca273b29eeffd5",
+      "kind": "objective",
+      "origin": {
+       "id": "alice",
+       "kind": "HUMAN"
+      },
+      "parents": [],
+      "provenance": [],
+      "tenant": "acme",
+      "version": 1
+     }
+    ]
+   }
+  },
+  "runs": {},
+  "tenant": "acme"
+ },
+ "head_hash": "70c55f22729f49b8f200bee2f7efb297db6f9abb55915a66719192cdd30f7ddc"
+}

@@ -1,8 +1,13 @@
-"""Thin command line: init, add, transition, show, verify, export.
+"""Thin command line: init, add, transition, show, verify, export, governance.
 
 Every command prints one JSON document to stdout. Refusals print a JSON error to stderr and
 exit 1. Usage errors exit 2 (argparse). The principal is a claim: --principal names it and the
 store checks it against the genesis entitlement set.
+
+Governance. `init --issuer ID:KIND:PUBKEYHEX` enrolls a governance public key (AUTHENTICATED
+mode, the default). `governance sign-bytes` prints the bytes an external signer must sign
+for one disposition; `governance apply --grant FILE` submits the signed grant. This command
+line never generates a key and never reads, holds or asks for a private key.
 """
 
 from __future__ import annotations
@@ -10,12 +15,25 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import sys
-from typing import Sequence
+import warnings
+from typing import Any, Sequence
 
 from . import __version__
 from .clock import Clock, FixedClock, SystemClock
 from .export import export_bundle
+from .governance import (
+    LEGACY_WARNING,
+    MODE_AUTHENTICATED,
+    MODE_LEGACY,
+    NONCE_MIN_BYTES,
+    GovernanceError,
+    UnauthenticatedGovernanceWarning,
+    grant_digest,
+    grant_signing_bytes,
+    make_issuer,
+)
 from .graph import EdgeType, GraphError
 from .lab import Lab, verify_store
 from .lifecycle import LifecycleError
@@ -48,7 +66,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_init = sub.add_parser("init", help="create a store and its genesis event")
     _common(p_init)
-    p_init.add_argument("--issuer", action="append", default=[], help="governance issuer id (repeatable)")
+    p_init.add_argument(
+        "--issuer",
+        action="append",
+        default=[],
+        help="governance issuer to enroll as ID:KIND:PUBKEYHEX (repeatable): KIND is human_body or system, "
+        "PUBKEYHEX is the 32-byte Ed25519 public key in lowercase hex. With --unauthenticated-governance, a plain issuer id.",
+    )
+    p_init.add_argument(
+        "--unauthenticated-governance",
+        action="store_true",
+        help="explicit opt-out: create the store in UNAUTHENTICATED_LEGACY mode, where a governance disposition is "
+        "authorized by a claimed actor kind and a public issuer id instead of a signature. Recorded in the genesis.",
+    )
+    p_init.add_argument("--grant-skew-seconds", type=int, default=None, help="how far in the future a grant's issued_at may be (default 300)")
     p_init.add_argument("--entitle", action="append", default=[], help="additional entitled principal id (repeatable)")
 
     p_add = sub.add_parser("add", help="add an objective, question, hypothesis or evidence record")
@@ -87,12 +118,32 @@ def build_parser() -> argparse.ArgumentParser:
     _common(p_show)
     p_show.add_argument("--entity", required=True)
 
-    p_verify = sub.add_parser("verify", help="verify the store's hash chain and tenant")
+    p_verify = sub.add_parser("verify", help="verify the store's hash chain, tenant, lab policy and governance grants")
     _common(p_verify)
+    p_verify.add_argument("--expect-genesis-hash", default=None, help="fail unless the genesis event has this hash (pin it out of band)")
+    p_verify.add_argument("--require-authenticated", action="store_true", help="fail unless the store is AUTHENTICATED")
 
     p_export = sub.add_parser("export", help="write a verified JSON-lines bundle")
     _common(p_export)
     p_export.add_argument("--out", required=True)
+
+    p_gov = sub.add_parser("governance", help="signed governance grants (AUTHENTICATED stores)")
+    gov_sub = p_gov.add_subparsers(dest="governance_command", required=True)
+    p_bytes = gov_sub.add_parser(
+        "sign-bytes", help="print the exact bytes an external signer must sign for one disposition (signs nothing)"
+    )
+    _common(p_bytes)
+    p_bytes.add_argument("--entity", required=True, help="finding or challenge id; its current version is the one disposed")
+    p_bytes.add_argument("--to", required=True, help="ACCEPTED, ADMITTED, WITHDRAWN, UPHELD or DISMISSED")
+    p_bytes.add_argument("--issuer-id", required=True, help="the enrolled issuer that will sign")
+    p_bytes.add_argument("--reason", required=True)
+    p_bytes.add_argument("--nonce", default=None, help="16 to 32 bytes of lowercase hex, single use; default is 16 fresh random bytes")
+    p_bytes.add_argument("--issued-at", default=None, help="default is the clock (--at or the wall clock)")
+    p_bytes.add_argument("--expires-at", default=None, help="default is issued-at plus 24 hours")
+    p_apply = gov_sub.add_parser("apply", help="submit a signed grant; the submitting actor may be anyone")
+    _common(p_apply)
+    _actor_args(p_apply)
+    p_apply.add_argument("--grant", required=True, help="path of a JSON file: the grant fields plus signature (128 hex)")
     return parser
 
 
@@ -179,6 +230,61 @@ def _add_source(lab: Lab, args: argparse.Namespace, actor: Actor) -> dict:
     }
 
 
+def _parse_issuers(args: argparse.Namespace) -> tuple[list[Any], str]:
+    """--issuer values as genesis issuers, and the governance mode they imply."""
+    if args.unauthenticated_governance:
+        return list(args.issuer), MODE_LEGACY
+    records = []
+    for value in args.issuer:
+        parts = value.rsplit(":", 2)
+        if len(parts) != 3 or not all(parts):
+            raise GovernanceError(
+                f"--issuer {value!r} is not ID:KIND:PUBKEYHEX. A new store is AUTHENTICATED and enrolls a public key "
+                "per issuer; a plain issuer id is accepted only with --unauthenticated-governance"
+            )
+        records.append(make_issuer(parts[0], parts[1], parts[2]))
+    return records, MODE_AUTHENTICATED
+
+
+def _mode_note(mode: str) -> dict[str, Any]:
+    out: dict[str, Any] = {"governance_mode": mode}
+    if mode == MODE_LEGACY:
+        out["governance_warning"] = LEGACY_WARNING
+    return out
+
+
+def _sign_bytes(lab: Lab, args: argparse.Namespace) -> dict:
+    if lab.governance_mode != MODE_AUTHENTICATED:
+        raise GovernanceError(f"this store's governance mode is {lab.governance_mode}: it enrolls no keys, so there is nothing to sign for")
+    issuer = lab.graph.governance_keys.get(args.issuer_id)
+    if issuer is None:
+        raise GovernanceError(f"issuer {args.issuer_id!r} is not enrolled in the genesis governance issuer set")
+    nonce = args.nonce if args.nonce is not None else secrets.token_hex(NONCE_MIN_BYTES)
+    grant = lab.grant_template(args.entity, args.to, args.issuer_id, args.reason, nonce, args.issued_at, args.expires_at)
+    data = grant_signing_bytes(grant)
+    return {
+        "grant": grant,
+        "nonce_source": "given" if args.nonce is not None else "generated",
+        "signing_bytes_hex": data.hex(),
+        "signing_bytes_utf8": data.decode("ascii"),
+        "grant_digest": grant_digest(grant),
+        "sign_with": {name: issuer[name] for name in ("issuer_id", "kind", "alg", "key_id", "public_key")},
+        "current_status": lab.graph.node(args.entity).status,
+        "next": "sign signing_bytes_hex (the raw bytes, not the hex text) with Ed25519 outside this tool, add the "
+        "128-hex signature to the grant object as \"signature\", and submit it with: governance apply --grant FILE",
+    }
+
+
+def _apply_grant(lab: Lab, args: argparse.Namespace) -> dict:
+    try:
+        with open(args.grant, encoding="utf-8") as handle:
+            grant = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise GovernanceError(f"cannot read grant file {args.grant!r}: {exc}") from exc
+    record = lab.apply_grant(grant, _actor(args))
+    return {"record": record.to_dict(), "governance": lab.graph.dispositions[-1]}
+
+
 def _blob_root(args: argparse.Namespace) -> str | None:
     """The blob root given, else <db>.blobs when it exists or is about to be created."""
     if args.blob_root:
@@ -209,6 +315,8 @@ def _show(lab: Lab, args: argparse.Namespace) -> dict:
         "ai_calls": [item for record in node.versions for item in record.provenance if item.get("type") == "ai_call"],
         "citations": node.latest.body.get("citations", []),
         "contradictions": [c.entity_id for c in lab.graph.contradictions_involving(node.entity_id)],
+        **_mode_note(lab.governance_mode),
+        "governance_dispositions": [item for item in lab.graph.dispositions if item["entity_id"] == node.entity_id],
     }
 
 
@@ -218,15 +326,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "init":
             principals = [args.principal, *args.entitle]
-            with Lab.create(args.db, args.tenant, _principal(args), args.issuer, _clock(args), principals) as lab:
-                _emit({"created": args.db, "genesis": lab.store.genesis(), "head_hash": lab.store.head().hash})
+            issuers, mode = _parse_issuers(args)
+            options: dict[str, Any] = {"governance_mode": mode}
+            if args.grant_skew_seconds is not None:
+                options["grant_skew_seconds"] = args.grant_skew_seconds
+            if mode == MODE_LEGACY:
+                sys.stderr.write(json.dumps({"warning": "UnauthenticatedGovernance", "message": LEGACY_WARNING}) + "\n")
+            with warnings.catch_warnings():
+                # The CLI has just printed the same warning as JSON; do not print it twice.
+                warnings.simplefilter("ignore", UnauthenticatedGovernanceWarning)
+                lab = Lab.create(args.db, args.tenant, _principal(args), issuers, _clock(args), principals, **options)
+            with lab:
+                _emit({"created": args.db, "genesis": lab.store.genesis(), "head_hash": lab.store.head().hash, **_mode_note(mode)})
             return 0
         if args.command == "verify":
             # Opened as a bare store, not a Lab, so a store that fails verification is reported
             # rather than refused at open. verify_store adds the policy replay.
             with EventStore.open(args.db, args.tenant, _principal(args)) as store:
-                result = verify_store(store)
-            output = result.to_dict()
+                result = verify_store(
+                    store, expected_genesis_hash=args.expect_genesis_hash, require_authenticated=args.require_authenticated
+                )
+                try:
+                    mode_note = _mode_note(store.governance_mode)  # from the genesis as stored, verified or not
+                except StoreError:
+                    mode_note = {"governance_mode": None}
+            output = {**result.to_dict(), **mode_note}
             blob_root = _blob_root(args)
             sources_ok = True
             if result.ok and blob_root is not None:
@@ -250,6 +374,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             elif args.command == "export":
                 info = export_bundle(lab.store, args.out)
                 _emit(info.to_dict())
+            elif args.command == "governance" and args.governance_command == "sign-bytes":
+                _emit(_sign_bytes(lab, args))
+            elif args.command == "governance":
+                _emit(_apply_grant(lab, args))
         return 0
     except (StoreError, LifecycleError, GraphError, RecordError, SourceError, ValueError) as exc:
         sys.stderr.write(json.dumps({"error": type(exc).__name__, "message": str(exc)}) + "\n")

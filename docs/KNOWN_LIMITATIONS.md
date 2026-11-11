@@ -1,20 +1,40 @@
-# Known limitations (increment 1)
+# Known limitations
 
 Started with the first construction, as the proposal asked. Each item says whether it is a
 design choice for now or a gap.
 
-1. **Identities are not authenticated.** Principal and actor ids are claims (gap; see
-   SECURITY.md).
+1. **Principal and actor identities are not authenticated.** Principal and actor ids are
+   claims (gap; see SECURITY.md). Governance authority is the one exception, and only in an
+   AUTHENTICATED store, where a disposition needs a grant signed by a key enrolled at
+   genesis (`docs/GOVERNANCE_PORT.md`).
+1a. **Governance keys cannot be rotated or revoked.** Issuer keys are fixed at genesis for
+   the life of the store. A lost or compromised key means a new store (gap; a design note
+   is in `docs/GOVERNANCE_PORT.md`, nothing is built).
+1b. **Legacy governance mode exists.** Stores written before the governance port, and stores
+   created with the explicit opt-out, authorize governance by a claimed actor kind and a
+   public issuer id. Attack A5 still succeeds there. The mode and every unauthenticated
+   disposition are reported (design choice, so that old stores still open).
+1c. **The governance port trusts the lab clock and the genesis as written.** A submitter who
+   controls the clock can apply an expired, unused grant; the issuer kind `human_body` is a
+   label nobody checks; a whole-file rewrite with a different genesis verifies unless the
+   verifier pins the genesis hash (see SECURITY.md, "Authenticated governance").
+1d. **No real signer has been exercised.** Grants in the tests and the demo are signed by a
+   test-only reference signer with public seeds. No HSM, KMS, hardware key or CNS identity
+   has produced a grant for this code; only the documented byte format and one public test
+   vector connect it to one. Four of the five RFC 8032 section 7.1 vectors are in the
+   suite; the 1023-byte one is not.
 2. **Entitlements are fixed at genesis.** The set of principals that may open a store cannot
    be changed afterwards. Adding a collaborator means a new store or a later increment that
    records entitlement changes as signed events (design choice for now).
-3. **Review independence is thin.** Only the same-actor rule and the governance actor-kind
-   rule exist. A second AI id may move a finding to REVIEWED, REPRODUCED or RECOMMENDED. The
+3. **Review independence is thin.** Only the same-actor rule and the governance rule (a
+   signed grant, or in legacy mode the actor-kind rule) exist. A second AI id may move a finding to REVIEWED, REPRODUCED or RECOMMENDED. The
    test `test_increment1_limitation_a_different_ai_may_review` records this on purpose (gap,
    increment 3).
 4. **No full-rewrite detection without a signer or anchor.** See SECURITY.md (inherent to
    hash chains; mitigations exist as protocols with reference implementations).
-5. **HMAC only.** No asymmetric signatures, no key rotation, no multiple keys per store.
+5. **The event chain is HMAC only.** The optional store signer is symmetric; no key
+   rotation, no multiple keys per store. Asymmetric signatures (verify-only Ed25519) exist
+   for governance grants and nowhere else.
 6. **Graph is in memory and rebuilt on open.** Fine for increment 1 sizes; cost grows with the
    log. No incremental snapshot exists.
 7. **Concurrency.** Several Labs (in one process or several) may write to one file; the store
@@ -35,12 +55,15 @@ design choice for now or a gap.
    inside the write transaction; on a long log that first append is slow.
 7d. **Challenges are unlimited.** Any entitled actor may file any number of challenges; they
    have no authority effect, so this is noise, not control. No cap per actor exists yet.
-7a. **Policy replay does not authenticate.** Replay validation (SECURITY.md) refuses events
-   that break the rules, but an event whose actor claims a SYSTEM kind under a new id with a
-   public issuer id is within the rules. Identity is the gap, not the rules.
+7a. **Policy replay authenticates governance grants and nothing else.** In an AUTHENTICATED
+   store replay re-verifies the signature of every governance grant. In a legacy store an
+   event whose actor claims a SYSTEM kind under a new id with a public issuer id is within
+   the rules. Actor and principal ids are claims in both modes.
 8. **Bundle import and merge are not implemented.** Export and verify only.
-9. **The CLI covers a subset.** `add` handles objective, question, hypothesis and evidence;
-   governance dispositions, plans and runs are Python API only.
+9. **The CLI covers a subset.** `add` handles objective, question, hypothesis, evidence,
+   challenge and source; findings, plans, runs and legacy (claim-based) governance
+   dispositions are Python API only. Signed grants have `governance sign-bytes` and
+   `governance apply`; the CLI cannot sign.
 10. **Entity ids are prefixes.** A derived id is 16 hex characters of the entity digest; the
     full digest is stored and checked, and the store refuses a duplicate id, but two different
     seeds with the same 64-bit prefix would collide at add time with a refusal, not a merge.

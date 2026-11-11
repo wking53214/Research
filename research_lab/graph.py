@@ -18,6 +18,16 @@ from enum import Enum
 from typing import Any, Iterable
 
 from .clock import parse_utc
+from .governance import (
+    CURRENT_SCHEMA_VERSION,
+    MODE_AUTHENTICATED,
+    GrantRefused,
+    check_grant_fields,
+    check_signature_hex,
+    grant_provenance,
+    read_genesis,
+    verify_grant_signature,
+)
 from .lifecycle import (
     OPEN_THREAD_STATUSES,
     ChallengeStatus,
@@ -27,12 +37,13 @@ from .lifecycle import (
     check_challenge_filing,
     check_evidence_label,
     check_governance_transition,
+    check_grant_transition,
     check_lab_transition,
     initial_status,
     uses_finding_stages,
 )
 from .records import Actor, Kind, Record, RecordError, Ref
-from .store import GENESIS, SCHEMA_VERSION, Event
+from .store import GENESIS, Event
 
 EVENT_RECORD = "RECORD"
 EVENT_TRANSITION = "TRANSITION"
@@ -242,6 +253,12 @@ class Graph:
     def __init__(self) -> None:
         self.tenant: str | None = None
         self.governance_issuers: frozenset[str] = frozenset()
+        self.governance_mode: str | None = None
+        self.governance_keys: dict[str, dict[str, str]] = {}  # enrolled id -> record; AUTHENTICATED only
+        self.grant_skew_seconds: int = 0
+        self.used_grant_nonces: set[str] = set()
+        self.dispositions: list[dict[str, Any]] = []  # every governance disposition, in log order
+        self.genesis_hash: str | None = None
         self.nodes: dict[str, Node] = {}
         self.edges: list[Edge] = []
         self.runs: dict[str, dict[str, TaskRun]] = {}
@@ -266,15 +283,24 @@ class Graph:
             raise GraphError(f"event seq {event.seq} applied out of order (expected {self.applied_seq + 1})")
         self.check(event)
         if event.event_type == GENESIS:
+            genesis = read_genesis(event.payload)
             self.tenant = event.payload["tenant"]
-            self.governance_issuers = frozenset(event.payload["governance_issuers"])
+            self.governance_issuers = genesis.issuer_ids
+            self.governance_mode = genesis.mode
+            self.governance_keys = genesis.keys
+            self.grant_skew_seconds = genesis.skew_seconds
+            self.genesis_hash = event.hash
         elif event.event_type == EVENT_RECORD:
             record = Record.from_dict(event.payload["record"])
             self._add_version(record)
             for item in event.payload.get("edges", []):
                 self._add_edge(record.entity_id, item["edge"], item["to"], record.origin.id, record.created_at, event.seq)
         elif event.event_type == EVENT_TRANSITION:
-            self._add_version(Record.from_dict(event.payload["record"]))
+            record = Record.from_dict(event.payload["record"])
+            self._add_version(record)
+            governance = event.payload.get("governance")
+            if governance is not None:
+                self._note_disposition(event, record, governance)
         elif event.event_type == EVENT_EDGE:
             payload = event.payload
             self._add_edge(payload["from"], payload["edge"], payload["to"], payload["actor"]["id"], payload["created_at"], event.seq)
@@ -302,6 +328,30 @@ class Graph:
 
     def _add_edge(self, from_id: str, edge: str, to_id: str, actor_id: str, created_at: str, seq: int) -> None:
         self.edges.append(Edge(from_id, EdgeType(edge), to_id, actor_id, created_at, seq))
+
+    def _note_disposition(self, event: Event, record: Record, governance: dict[str, Any]) -> None:
+        """Remember a governance disposition and whether a signed grant authenticated it.
+        Called only after check() accepted the event, so in AUTHENTICATED mode the grant has
+        just been verified by this replay."""
+        authenticated = self.governance_mode == MODE_AUTHENTICATED
+        entry: dict[str, Any] = {
+            "seq": event.seq,
+            "entity_id": record.entity_id,
+            "version": record.version,
+            "from": event.payload["from"],
+            "to": event.payload["to"],
+            "issuer_id": governance["issuer_id"],
+            "submitted_by": record.origin.to_dict(),
+            "at": record.created_at,
+            "authenticated": authenticated,
+        }
+        if authenticated:
+            grant = governance["grant"]
+            self.used_grant_nonces.add(grant["nonce"])
+            entry["key_id"] = self.governance_keys[grant["issuer_id"]]["key_id"]
+            entry["grant_nonce"] = grant["nonce"]
+            entry["grant_digest"] = record.provenance[0]["grant_digest"]
+        self.dispositions.append(entry)
 
     # replay validation (shared with the write path)
 
@@ -344,14 +394,16 @@ class Graph:
     @staticmethod
     def _check_genesis(event: Event) -> None:
         payload = event.payload
-        if payload["schema_version"] != SCHEMA_VERSION:
-            raise GraphError(f"schema_version {payload['schema_version']!r} is not {SCHEMA_VERSION}")
+        genesis = read_genesis(payload)  # schema version, mode, issuer ids or issuer records
+        if genesis.schema_version == CURRENT_SCHEMA_VERSION:
+            expected = {"schema_version", "tenant", "governance_mode", "governance_issuers", "principals"}
+            if genesis.authenticated:
+                expected.add("grant_skew_seconds")
+            if set(payload) != expected:
+                raise GraphError(f"genesis fields must be exactly {sorted(expected)}, got {sorted(payload)}")
         tenant = payload["tenant"]
         if not isinstance(tenant, str) or not tenant.strip() or tenant != event.tenant:
             raise GraphError("genesis tenant is missing or differs from the event header")
-        issuers = payload["governance_issuers"]
-        if not isinstance(issuers, list) or not all(isinstance(item, str) and item for item in issuers):
-            raise GraphError("governance_issuers must be a list of non-empty ids")
         principals = payload["principals"]
         if not isinstance(principals, list) or not principals or not all(isinstance(p, str) and p for p in principals):
             raise GraphError("principals must be a non-empty list of ids")
@@ -423,6 +475,9 @@ class Graph:
             if node.kind is Kind.PLAN and to_status == ThreadStatus.CLOSED.value:
                 self.check_plan_closable(node.entity_id)
             return
+        if self.governance_mode == MODE_AUTHENTICATED:
+            self._check_granted_transition(record, payload, governance)
+            return
         issuer_id = governance["issuer_id"]
         check_governance_transition(
             node.kind, from_status, to_status, actor, node.author.id, issuer_id, self.governance_issuers
@@ -434,6 +489,90 @@ class Graph:
             or provenance[0].get("issuer_id") != issuer_id
         ):
             raise GraphError(f"{record.entity_id}: governance provenance does not name the issuer")
+
+    def _check_granted_transition(self, record: Record, payload: dict[str, Any], governance: Any) -> None:
+        """AUTHENTICATED mode: the event must carry a grant that verifies, and the record it
+        writes must be exactly the transition that grant authorizes. The actor's kind is not
+        consulted: submitting a grant is not authority, the signature is."""
+        if not isinstance(governance, dict) or "grant" not in governance or "signature" not in governance:
+            raise GrantRefused(
+                "this store is AUTHENTICATED: a governance disposition needs a signed grant; "
+                "an actor kind and an issuer id are a claim, not authority"
+            )
+        if set(governance) != {"issuer_id", "grant", "signature"}:
+            raise GrantRefused("governance must be exactly {issuer_id, grant, signature}")
+        check_grant_fields(governance["grant"])  # exactly the eleven fields; nothing rides along inside the event
+        grant = self.check_grant({**governance["grant"], "signature": governance["signature"]}, record.created_at)
+        if governance["issuer_id"] != grant["issuer_id"]:
+            raise GrantRefused("governance issuer_id differs from the grant's issuer_id")
+        if grant["entity_id"] != record.entity_id:
+            raise GrantRefused(f"the grant is for entity {grant['entity_id']!r}, not {record.entity_id!r}")
+        if payload["to"] != grant["to"] or payload["reason"] != grant["reason"]:
+            raise GrantRefused("the event's to and reason must be exactly the grant's")
+        if list(record.provenance) != [grant_provenance(grant)]:
+            raise GrantRefused(f"{record.entity_id}: governance provenance must be exactly the grant's issuer, reason and digest")
+
+    def check_grant(self, signed_grant: Any, applied_at: str) -> dict[str, Any]:
+        """Verify a signed grant against the graph's current state. Returns the grant fields.
+
+        Shared by Lab.apply_grant, by the store's write-time validator and by every replay
+        (applied_at is then the created_at of the version the event writes, which is the lab
+        clock's reading when the grant was applied). Does not mutate. Raises GrantRefused,
+        a lifecycle error or GraphError; nothing is written when it raises.
+        """
+        if self.governance_mode != MODE_AUTHENTICATED:
+            raise GrantRefused(
+                f"this store's governance mode is {self.governance_mode}: it enrolls no keys, so no grant can be verified"
+            )
+        if not isinstance(signed_grant, dict):
+            raise GrantRefused("a grant is a JSON object")
+        if signed_grant.get("signature") is None:
+            raise GrantRefused("the grant has no signature")
+        grant = check_grant_fields({name: value for name, value in signed_grant.items() if name != "signature"})
+        signature = check_signature_hex(signed_grant["signature"])
+        if grant["tenant"] != self.tenant:
+            raise GrantRefused(f"the grant is for tenant {grant['tenant']!r}, not this store's tenant {self.tenant!r}")
+        verify_grant_signature(grant, signature, self.governance_keys)
+        if grant["nonce"] in self.used_grant_nonces:
+            raise GrantRefused("the grant's nonce was already used in this tenant; a grant is single use")
+        node = self.node(grant["entity_id"])
+        latest = node.latest
+        if grant["entity_version"] != latest.version:
+            raise GrantRefused(
+                f"{node.entity_id}: the grant disposes version {grant['entity_version']} but the current version is "
+                f"{latest.version}; a grant is valid only for the exact version it names"
+            )
+        if grant["record_digest"] != latest.digest:
+            raise GrantRefused(f"{node.entity_id}: the grant's record_digest is not the digest of version {latest.version}")
+        check_grant_transition(node.kind, node.status, grant["to"], node.author.id, grant["issuer_id"])
+        now = parse_utc(applied_at)
+        if now >= parse_utc(grant["expires_at"]):
+            raise GrantRefused(f"the grant expired at {grant['expires_at']} (lab clock {applied_at})")
+        if (parse_utc(grant["issued_at"]) - now).total_seconds() > self.grant_skew_seconds:
+            raise GrantRefused(
+                f"the grant is issued in the future: issued_at {grant['issued_at']} is more than "
+                f"{self.grant_skew_seconds}s after the lab clock {applied_at}"
+            )
+        return grant
+
+    def governance_report(self) -> dict[str, Any]:
+        """Governance mode, enrolled key labels and every disposition with its authentication."""
+        authenticated = sum(1 for item in self.dispositions if item["authenticated"])
+        if self.governance_mode == MODE_AUTHENTICATED:
+            enrolled: list[dict[str, Any]] = [
+                {name: record[name] for name in ("issuer_id", "kind", "alg", "key_id")}
+                for _, record in sorted(self.governance_keys.items())
+            ]
+        else:  # legacy: ids only, no keys
+            enrolled = [{"issuer_id": item, "kind": None, "alg": None, "key_id": None} for item in sorted(self.governance_issuers)]
+        return {
+            "mode": self.governance_mode,
+            "genesis_hash": self.genesis_hash,
+            "enrolled": enrolled,
+            "authenticated": authenticated,
+            "unauthenticated": len(self.dispositions) - authenticated,
+            "dispositions": [dict(item) for item in self.dispositions],
+        }
 
     def _check_edge_event(self, payload: dict[str, Any]) -> None:
         source = self.node(payload["from"])
@@ -490,6 +629,11 @@ class Graph:
         return {
             "tenant": self.tenant,
             "governance_issuers": sorted(self.governance_issuers),
+            "governance_mode": self.governance_mode,
+            "governance_keys": [record for _, record in sorted(self.governance_keys.items())],
+            "grant_skew_seconds": self.grant_skew_seconds,
+            "used_grant_nonces": sorted(self.used_grant_nonces),
+            "dispositions": [dict(item) for item in self.dispositions],
             "applied_seq": self.applied_seq,
             "nodes": {entity_id: node.to_dict() for entity_id, node in sorted(self.nodes.items())},
             "edges": [edge.to_dict() for edge in self.edges],

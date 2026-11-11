@@ -1,7 +1,7 @@
 import math
 
 import pytest
-from conftest import ISSUERS, TENANT
+from conftest import ISSUERS, LEGACY_MODE, TENANT
 
 from research_lab.clock import StepClock
 from research_lab.graph import RUN_COMPLETED, RUN_FAILED, RUN_INTERRUPTED, RUN_PROGRESS, RUN_STARTED, EdgeType, Graph, TaskState
@@ -52,7 +52,7 @@ def test_run_writes_started_then_completed_and_complete_closes(lab, human):
 
 def test_interrupted_run_then_resume(db_path, principal, human):
     calls = {"a": 0, "b": 0, "c": 0}
-    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock())
+    lab = Lab.create(db_path, TENANT, principal, ISSUERS, StepClock(), governance_mode=LEGACY_MODE)
     plan, tasks = create_plan(lab, human, "P", ["a", "b", "c"])
     runner = Runner(lab, plan.entity_id, human)
 

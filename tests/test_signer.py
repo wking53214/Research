@@ -1,5 +1,5 @@
 import pytest
-from conftest import ISSUERS, TENANT
+from conftest import ISSUERS, LEGACY_MODE, TENANT
 
 from research_lab.store import MIN_KEY_BYTES, EventStore, HmacSigner, StoreError
 
@@ -39,7 +39,7 @@ def test_sign_and_verify():
 def test_signed_store_verifies_and_wrong_key_fails(db_path, principal):
     signer = HmacSigner(KEY, "key-a")
     # Chain-layer test with a bare "NOTE" event: opened without the policy validator.
-    store = EventStore.create(db_path, TENANT, principal, ISSUERS, signer=signer, unsafe_unvalidated=True)
+    store = EventStore.create(db_path, TENANT, principal, ISSUERS, signer=signer, unsafe_unvalidated=True, governance_mode=LEGACY_MODE)
     store.append("NOTE", {"i": 1})
     events = store.events()
     assert all(e.key_id == "key-a" and e.signature for e in events)
@@ -54,7 +54,7 @@ def test_signed_store_verifies_and_wrong_key_fails(db_path, principal):
 
 
 def test_unsigned_store_fails_when_signatures_are_required(db_path, principal):
-    store = EventStore.create(db_path, TENANT, principal, ISSUERS)
+    store = EventStore.create(db_path, TENANT, principal, ISSUERS, governance_mode=LEGACY_MODE)
     assert store.verify().ok
     result = store.verify(require_signed=True)
     assert not result.ok and any("unsigned event" in p for p in result.problems)
@@ -63,7 +63,7 @@ def test_unsigned_store_fails_when_signatures_are_required(db_path, principal):
 
 def test_signed_store_opened_without_signer_reports_unverified(db_path, principal):
     signer = HmacSigner(KEY, "key-a")
-    EventStore.create(db_path, TENANT, principal, ISSUERS, signer=signer).close()
+    EventStore.create(db_path, TENANT, principal, ISSUERS, signer=signer, governance_mode=LEGACY_MODE).close()
     store = EventStore.open(db_path, TENANT, principal)
     result = store.verify()
     assert result.ok and result.unverified_signatures == 1 and result.signatures_checked == 0
