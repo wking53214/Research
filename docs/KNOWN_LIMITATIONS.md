@@ -53,5 +53,31 @@ design choice for now or a gap.
     3.10), not EXECUTED.
 15. **Acceptance list wording was not available to the builder.** The README table marks
     those rows UNKNOWN rather than guessing.
+17. **Sources (increment 2a).** Two adapters only (GitHub REST, local files). GitHub: the
+    contents endpoint returns base64 only for files up to 1 MB; a larger file comes back
+    with another encoding and is refused as `SourceFormatError` (the git blobs endpoint is
+    not used yet); annotated tags are refused; unauthenticated rate limit is low (60 per
+    hour per address at capture time); no retry or backoff. Local files: TOCTOU between
+    realpath and open on parent directories (see SECURITY.md). Blob store: no garbage
+    collection, no quota beyond the per-blob cap, deletion by anyone with file access is
+    detected, not prevented. `source_by_locator` scans every source node (linear).
+    `record_source` does not verify that an existing blob for an idempotent re-fetch is
+    intact; `verify_sources` does. The demo's local-file example depends on a sibling
+    checkout of WATCHER_MCU being present; the test uses a stand-in file.
+18. **AI port (increment 2b).** No WATCHER_MCU implementation and no live provider: the
+    contract is exercised only by a synthetic replay and a deterministic extractor. The
+    policy is supplied by the deployer, not by genesis. The baseline's sentence splitter
+    and keyword overlap are crude; its proposals are quotes, not insight. Excerpts are the
+    first `max_excerpt_chars` characters of each source, so a provider never sees the rest.
+    Hypotheses from a port are linked to one framing question, not to the port's own
+    questions. Contradictions are not detected by the runner; `record_contradiction`
+    preserves what a person identifies. The independence check only compares cited
+    sources; two providers trained on the same material are not detected. Citation checks
+    use whitespace normalisation only (no Unicode folding, no fuzzy match), so a quote with
+    a different dash or quotation mark is UNVERIFIED. A quote shorter than 20 characters or
+    4 words is always UNVERIFIED, even when it is genuinely in the source. A long verbatim
+    quote can still be cited for a claim it does not support; VERIFIED says the words are
+    there at the recorded span, nothing more. Request and response blobs share the
+    source blob store and count against the same cap. No `investigate` CLI command.
 16. **ruff and bandit were not run** in the build environment (not installed, no installs
     allowed). The configuration in `pyproject.toml` is untested here.

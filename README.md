@@ -27,7 +27,11 @@ William N. King.
 | `research_lab.lab` | The write path: add, link, transition, govern, supersede, verify. Verifies the chain before trusting a store it opens | implemented |
 | `research_lab.orchestration` | Plan and task records, `Runner` with registered steps keyed by idempotency key, RUN_STARTED, RUN_PROGRESS, RUN_COMPLETED, RUN_FAILED, RUN_INTERRUPTED events, resume that marks interrupted tasks PARTIAL and never re-runs completed steps, `complete()` refused while any task is not COMPLETED | implemented |
 | `research_lab.export` | Deterministic JSON-lines bundle, verified before write, `verify_bundle()` from the file alone | implemented; import and merge are not implemented |
-| `python -m research_lab` | init, add (objective, question, hypothesis, evidence, challenge), transition, show (with open challenges), verify, export | implemented |
+| `research_lab.sources` | `SourcePort` contract and `SourceDocument`; `LocalFileSource` (explicit allowed roots, realpath confinement, O_NOFOLLOW open, regular files only, size cap); `GitHubSource` (read-only GET to https://api.github.com only, no redirects, timeout, size cap, strict JSON and base64, blob sha recomputed, commit and blob pinned, injected transport with `FixtureTransport` for tests); `BlobStore` (content-addressed, write-once, verify-on-read, per tenant) | implemented (increment 2a) |
+| `Lab.record_source`, `Lab.verify_sources`, `Graph.shared_sources` | source records with digests and pins, idempotent re-fetch, changed content superseding the old source, blob verification, shared-source query | implemented (increment 2a) |
+| `research_lab.ai` | `AIPort` contract (`AIRequest` with request digest, `AIResponse` with provenance), errors, `ProviderPolicy` with `STACK_PROFILE` and `STANDALONE_DEV_PROFILE`, strict output parser, citation verification against preserved blobs, conformance suite; two implementations: `ReplayAIPort` (recorded SYNTHETIC test data) and `ExtractiveBaselinePort` (deterministic keyword extraction, not a model) | implemented (increment 2b); no vendor SDK; no WATCHER_MCU implementation exists |
+| `research_lab.investigation` | `run_investigation` on the resumable Runner: policy check before any call, provider calls idempotent by request digest, request and raw response preserved, strict parse, citations verified, AI-origin proposals with `ai_call` provenance, shared-source pairs marked NOT_INDEPENDENT, one provider's failure isolated, summary that states what is complete, failed and unverified; `Lab.record_contradiction` | implemented (increment 2b) |
+| `python -m research_lab` | init, add (objective, question, hypothesis, evidence, challenge, source), transition, show (open challenges, ai_call provenance, citation status, contradictions), verify (chain, policy and source blobs), export. No `investigate` command: it would need ports, recordings and a policy on the command line and was left out to keep the CLI thin | implemented |
 | `examples/resume_demo.py` | Interrupted investigation resumed in a second process over the same store | implemented, exercised by tests |
 
 Identities are claims in increment 1. A `Principal` or `Actor` id is checked against the
@@ -44,13 +48,23 @@ genesis entitlement set and the authority rules, but it is not authenticated. Se
   or accept its own record, and no AI can record a governance disposition. A second AI id may
   move a finding through review stages. Independence descriptors are increment 3.
 
-## Not implemented in increment 1
+## Not implemented yet
 
-Source adapters, AI port, WATCHER adapter, experiment runner and isolation, review
-independence descriptors, governance port beyond the disposition record, CNS and TIE adapters,
-bundle import and merge, authentication of principals or actors, changing entitlements after
-genesis, multi-process concurrent writers (SQLite serialises writers; nothing here was tested
-under concurrency).
+The WATCHER_MCU implementation of the AI port (needs a change in WATCHER_MCU the owner has
+not reviewed; see `docs/WATCHER_MCU_PORT.md`), any live external AI provider, experiment
+runner and isolation, review independence descriptors beyond the shared-source check,
+governance port beyond the disposition record, CNS and TIE adapters, bundle import and
+merge, authentication of principals or actors, changing entitlements after genesis, source
+adapters other than GitHub REST and local files (academic hosts are not reachable from the
+build environment), a provider policy fixed in genesis (today the deployer supplies it).
+
+AI output is always a proposal. The two AI port implementations that exist are a replay of
+SYNTHETIC test data and a deterministic extractor that is not a model; nothing the package
+prints or records is a model's output.
+
+A source is an input the lab preserved: never evidence by itself, never verified knowledge.
+The blob store is a reproducibility cache; the native evidence owners (TIE, HERALD, CCC)
+keep their role and the lab references their ids.
 
 ## Quickstart
 
@@ -72,6 +86,26 @@ python -m research_lab show   --db lab.sqlite --tenant acme --principal alice --
 python -m research_lab verify --db lab.sqlite --tenant acme --principal alice
 python -m research_lab export --db lab.sqlite --tenant acme --principal alice --out lab.jsonl
 python examples/resume_demo.py
+```
+
+Sources (increment 2a). Local files need explicit allowed roots; GitHub fetches are live
+unless `--github-fixtures DIR` points at recorded responses (the repository ships
+`tests/fixtures/github`, captured on 2026-11-05):
+
+```sh
+python -m research_lab add source --db lab.sqlite --tenant acme --principal alice --actor local-fs --actor-kind SYSTEM --kind file --path /abs/path/data.csv --allow-root /abs/path
+python -m research_lab add source --db lab.sqlite --tenant acme --principal alice --actor github.com --actor-kind EXTERNAL --kind github --repo wking53214/WATCHER_MCU --path README.md --ref main --github-fixtures tests/fixtures/github
+python -m research_lab verify --db lab.sqlite --tenant acme --principal alice      # now also checks source blobs
+python examples/source_demo.py            # offline, from fixtures
+python examples/source_demo.py --live     # two GETs to https://api.github.com
+```
+
+Blobs live in `<db>.blobs/<tenant>/` unless `--blob-root` says otherwise.
+
+Investigation (increment 2b), offline, from Python:
+
+```sh
+python examples/investigation_demo.py     # fixtures + a synthetic replay recording + the deterministic baseline; no network, no model
 ```
 
 `--at` is optional; without it the wall clock is used. Every command prints JSON. A refusal
@@ -135,6 +169,24 @@ Each rule has positive and negative tests under `tests/`.
   ADMITTED) makes `Lab.open` fail with `PolicyViolation` and `verify` report it
   (`tests/test_replay_policy.py`, including the exact attack that found the gap).
 * A Lab is bound to the thread that opened it; other threads get `ThreadAffinityError`.
+* Sources are instruments. `LocalFileSource` reads only regular files inside explicitly
+  configured roots (path traversal and symlink escapes refused); `GitHubSource` talks only to
+  https://api.github.com, follows no redirect, caps sizes, reads JSON and base64 strictly and
+  recomputes the blob sha; a source record is written by an EXTERNAL or SYSTEM actor and
+  pins commit and blob; re-fetching identical content adds nothing, changed content
+  supersedes the old source; `verify_sources` detects a blob modified after preservation
+  (`tests/test_sources_local.py`, `tests/test_sources_github.py`, `tests/test_blobs.py`,
+  `tests/test_record_source.py`). Nothing in the package names or reaches an AI provider
+  (`tests/test_repo_hygiene.py`).
+* All AI interaction goes through `AIPort`. The investigation refuses, before any call, a
+  port the policy does not allow (under `STACK_PROFILE` every existing port, because the
+  WATCHER_MCU implementation does not exist). Every call is preserved (request and raw
+  response), parsed strictly, and its citations checked verbatim against the preserved
+  sources; UNVERIFIED cites are flagged and kept. Proposals are AI-origin records that can
+  never carry the EXECUTED label, cannot be reviewed or accepted by their author, and are
+  never picked as winners: contradictory proposals are preserved and pairs that share a
+  source are marked NOT_INDEPENDENT. One provider's failure fails only its task
+  (`tests/test_ai_port.py`, `tests/test_investigation.py`).
 * A store belongs to one tenant. Opening it for another tenant, by a principal that does not
   claim the tenant, or by a principal not in the genesis entitlement set, is refused.
 * `HmacSigner` refuses to run without an explicit key of at least 32 bytes. The key id is a
@@ -158,9 +210,9 @@ names the file or test that proves the claim; nothing beyond what the tests prov
 |---|---|---|---|
 | 1 | A research objective can be created. | implemented | `Kind.OBJECTIVE`; CLI `add objective`; `tests/test_cli.py::test_full_flow_through_the_cli`, `tests/test_graph.py` |
 | 2 | An investigation can be decomposed into related research questions. | implemented | `QUESTION DECOMPOSES OBJECTIVE` and `QUESTION DECOMPOSES QUESTION` edges, `Graph.children`, branching in `tests/test_graph.py::test_traceability_reports_complete_and_partial_chains`; CLI `add question --decomposes` |
-| 3 | At least one external AI research provider can be used through WATCHER_MCU. | not yet addressed | No AI port exists. Blocked on the WATCHER_MCU decision and a credential (proposal section 6). |
-| 4 | At least one non-AI information source can be queried. | not yet addressed | No source adapter exists (increment 2). Only the record shape `Kind.SOURCE` and the `EVIDENCE CITES SOURCE` edge exist (`research_lab/graph.py`). |
-| 5 | Research outputs retain their source provenance. | partially implemented | Every record version carries its origin actor (kind, provider, model family), timestamp, parent version and provenance refs; edges `CITES`, `DERIVES_FROM`, `SUPPORTS`, `CONTRADICTS` are kept and replayed (`tests/test_records.py`, `tests/test_lifecycle.py`). Missing: provenance of external content is whatever the caller writes; no adapter captures it (items 3, 4). |
+| 3 | At least one external AI research provider can be used through WATCHER_MCU. | not yet addressed | The port contract and conformance suite exist (`docs/WATCHER_MCU_PORT.md`), but no WATCHER_MCU implementation exists and no external provider was called. Under `STACK_PROFILE` every investigation is refused before any call (`tests/test_investigation.py::test_stack_profile_refuses_before_any_call`). |
+| 4 | At least one non-AI information source can be queried. | partially implemented | `GitHubSource` and `LocalFileSource` fetch, `Lab.record_source` preserves, and `run_investigation` feeds the preserved sources to the ports and records proposals against them (`tests/test_investigation.py`, `examples/investigation_demo.py`). Missing: only two adapters; academic hosts unreachable here; no live run of a full investigation against a live source in this round (offline fixtures). |
+| 5 | Research outputs retain their source provenance. | partially implemented | Every record version carries its origin actor, timestamp, parent version and provenance refs; source records carry locator, adapter id and version, retrieval metadata, response and content SHA-256, blob digest and for GitHub the commit and blob sha; AI-origin proposals carry an `ai_call` block (provider id and kind, model requested and reported, request and response digests, policy profile, origin tag) and per-cite verification status; `CITES` edges and `Graph.shared_sources` link outputs to sources (`tests/test_investigation.py::test_happy_path_records_proposals_with_provenance`). Missing: provenance of a live model's output (none exists). |
 | 6 | Hypotheses can be created and tracked. | partially implemented | `Kind.HYPOTHESIS`, `ANSWERS` edge, thread statuses, full history, reopen, supersede, `contradictions_of` (`tests/test_lifecycle.py`, `tests/test_graph.py`). Missing: falsification criteria, confidence and uncertainty fields, competing-hypothesis structure (increment 3). |
 | 7 | Contradictory findings can be preserved. | partially implemented | `CONTRADICTS` edges, `Kind.CONTRADICTION` records, `Graph.contradictions_of`; challenge records flag an accepted finding without changing it and stay queryable with their resolutions; nothing is deleted (`tests/test_graph.py::test_contradictions_of_hypothesis`, `tests/test_lifecycle.py::test_rejected_hypothesis_later_supported_keeps_rejection_history`, `tests/test_challenges.py`). Missing: contradiction detection, and a resolution workflow beyond a `DECISION RESOLVES CONTRADICTION` edge and governance resolution of a challenge. Status unchanged: the ruling adds a record, not detection. |
 | 8 | Research can be resumed after interruption. | implemented | `Runner.reconcile` and `run`; interrupted task marked INTERRUPTED with PARTIAL outputs; completed steps not re-run; completion refused while partial (`tests/test_orchestration.py::test_interrupted_run_then_resume`, `tests/test_example.py`, `examples/resume_demo.py`). Scope: steps registered in process; no external execution. |
@@ -169,11 +221,11 @@ names the file or test that proves the claim; nothing beyond what the tests prov
 | 11 | Failed and rejected findings remain available. | implemented | REJECTED, WITHDRAWN, SUPERSEDED and FAILED items stay as nodes with full version history and remain queryable; no delete API (`tests/test_lifecycle.py::test_rejected_hypothesis_later_supported_keeps_rejection_history`, `tests/test_graph.py::test_supersede_keeps_old_entity_queryable`, `tests/test_orchestration.py::test_failed_step_is_recorded_and_can_be_retried`). |
 | 12 | A capability proposal can be generated without automatically authorizing implementation. | partially implemented | `Kind.CAPABILITY_PROPOSAL` derives from a finding; no code path authorizes anything; ACCEPTED and ADMITTED are governance-only dispositions that lab code and AI actors cannot set, on write or on replay (`tests/test_lifecycle.py`, `tests/test_replay_policy.py`). Missing: generation from findings, submission, admission tracking (increment 4). |
 | 13 | Research records can be exported or exchanged through defined interfaces. | partially implemented | Deterministic JSON-lines bundle with schema version, verified before write, verifiable from the file alone including policy replay (`tests/test_export.py`, `tests/test_replay_policy.py`). Missing: import and merge, CNS and TIE exchange adapters. |
-| 14 | The system can operate without one particular external AI vendor. | not yet addressed | The core has no vendor dependency (`tests/test_repo_hygiene.py`), but the criterion needs an AI port with two interchangeable implementations to demonstrate; none exists. |
-| 15 | The architecture supports future internally operated execution. | designed but unimplemented | The execution port and isolation model are described in the proposal and `docs/ARCHITECTURE.md`; no execution port, sandbox or local provider exists. |
+| 14 | The system can operate without one particular external AI vendor. | partially implemented at best | No vendor SDK or URL exists in the package (`tests/test_repo_hygiene.py`); one `AIPort` with two interchangeable implementations runs the same investigation (`tests/test_investigation.py`). But both implementations are non-vendor (synthetic replay, deterministic baseline) and no live external vendor has been exercised, so vendor independence is shown only for the contract, not for a real vendor. |
+| 15 | The architecture supports future internally operated execution. | partially implemented | The port contract plus one internally operated deterministic implementation (`ExtractiveBaselinePort`, not a model) run end to end under `STANDALONE_DEV_PROFILE`. No internal model, no execution port, no sandbox. |
 
-Summary: implemented 4 (items 1, 2, 8, 11); partially implemented 6 (5, 6, 7, 10, 12, 13);
-designed but unimplemented 2 (9, 15); not yet addressed 3 (3, 4, 14).
+Summary: implemented 4 (items 1, 2, 8, 11); partially implemented 9 (4, 5, 6, 7, 10, 12, 13,
+14, 15); designed but unimplemented 1 (9); not yet addressed 1 (3).
 
 ## Tests
 
@@ -185,9 +237,9 @@ record for this version is in `CHANGELOG.md`.
 ## Layout
 
 ```
-research_lab/      package (stdlib only)
-tests/             pytest suite
-examples/          resume_demo.py
+research_lab/      package (stdlib only); research_lab/sources/ holds the source adapters, research_lab/ai/ the AI port
+tests/             pytest suite; tests/fixtures/github/ holds recorded GitHub responses and a manifest
+examples/          resume_demo.py, source_demo.py, investigation_demo.py
 docs/              ARCHITECTURE.md, SECURITY.md, KNOWN_LIMITATIONS.md, EXTERNAL_DEPENDENCIES.md
 ```
 

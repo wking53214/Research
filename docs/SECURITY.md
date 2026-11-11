@@ -139,6 +139,88 @@ control. An actor can clutter the governance view of findings with open challeng
 cannot change a finding. No rate limit exists in increment 1; a future increment may cap
 open challenges per actor.
 
+## Sources (increment 2a): what a source is, and what it is not
+
+A source is bytes the lab preserved, with where and when it got them. It is not evidence,
+not verified knowledge, and its content is untrusted data: nothing in the lab executes or
+interprets it. The native evidence owners (TIE, HERALD, CCC) keep their role; `BlobStore` is
+a reproducibility cache so a run can be repeated against exactly the input it saw.
+
+Host allowlist (SSRF-style controls, EXECUTED in tests/test_sources_github.py): `GitHubSource`
+builds every URL from a constant base and then re-checks scheme `https`, host
+`api.github.com`, default port and no userinfo on the final URL, independently of the
+constant; redirects are never followed (a 3xx is refused with its target named); a timeout
+and a response size cap apply; JSON must be an object with the expected fields and types,
+base64 is decoded with validation, the declared size and the git blob sha are recomputed
+from the decoded bytes. Any deviation is `SourceFormatError` with the raw response digest, so
+the exact bytes can be examined. HTTP errors and rate limits become `SourceUnavailable` with
+the status preserved. A token is read only from an environment variable the caller names in
+`token_env`, sent only to the allowlisted host, and never stored, logged or recorded. The
+User-Agent is a generic product string.
+
+Path confinement (EXECUTED in tests/test_sources_local.py): `LocalFileSource` has no default
+root. A path is resolved with realpath and must be inside a configured root; the open uses
+O_NOFOLLOW and O_NONBLOCK and `fstat` must report a regular file, so directories, FIFOs,
+devices and sockets are refused without being read and a FIFO cannot block the process.
+Known gap: the resolved path can be swapped between realpath and open (TOCTOU) by someone
+who can write inside the root; the last component is protected by O_NOFOLLOW, parents are
+not.
+
+Blob store: digests are validated before any path is built (no traversal through a digest),
+one directory per tenant with a validated tenant name, atomic write, read-only mode, verify
+on every read; a blob that no longer hashes to its name is refused and `verify_sources`
+reports it. Anyone with file access can still delete or modify blobs; that is detected,
+not prevented.
+
+## The AI port (increment 2b): output is a proposal, never knowledge
+
+Everything an AI port returns is untrusted text. The lab parses it with a strict schema
+(unknown keys, wrong types, empty strings, oversize payloads and duplicate cites refused),
+stores the raw text in the blob store before parsing so a rejected response is still
+preserved with its digest, and records what survives as AI-origin proposals. An AI-origin
+record can never carry the EXECUTED label, cannot be reviewed or accepted by its author,
+and goes through the same governance rules as everything else; nothing it says changes any
+other record.
+
+Policy (attack 15, "research output cannot bypass WATCHER_MCU"): the investigation refuses,
+before creating a plan or calling anything, every port whose kind the policy does not
+allow. Under `STACK_PROFILE` only `watcher_mcu` is allowed and no implementation of that
+kind exists, so every investigation is refused (EXECUTED:
+`tests/test_investigation.py::test_stack_profile_refuses_before_any_call`, zero calls
+asserted). The policy is supplied by the deploying code, which means a deployer who passes
+the development profile can run the non-vendor ports; moving the policy into the
+tamper-evident genesis configuration is a later hardening.
+
+Replay data: every recording the replay port accepts must declare
+`origin: synthetic_test_data` in its header, and that origin is written into every record
+derived from it. The recordings in this repository and in the demo are hand-written test
+data, never a model's output. The deterministic baseline is keyword extraction; it is not a
+model and its output is only as good as the heuristic.
+
+Citation verification: a cite is VERIFIED when its quote appears verbatim, after whitespace
+normalisation, in the preserved blob of the cited source entity of this tenant, and the
+result records the character span of the match in the normalised source text so an
+auditor can find the passage; otherwise it is UNVERIFIED with a reason (unknown source,
+quote too short, quote not found, blob corrupt, blob missing) and kept, never dropped. A
+verbatim quote of any length proves only that those words occur in the stored source. It
+does not prove that the claim the quote supports is true, that the quote is in context, or
+that the source is reliable. Short quotes are refused (fewer than `MIN_QUOTE_CHARS` = 20
+characters or `MIN_QUOTE_TOKENS` = 4 words after normalisation, both overridable) to stop a
+provider obtaining VERIFIED with a trivial substring such as "a" (found by the verifier's
+attack7, case Q3). Case changes, quotes stitched from two places and quotes from another
+source are UNVERIFIED. Agreement between proposals that cite a common source is not
+validation; the investigation marks such pairs NOT_INDEPENDENT (attack 3).
+
+Provider failure: one provider raising ProviderUnavailable, ProviderTimeout or
+ProviderRefused, or returning a changed format, fails only its own task; the other ports
+run; the plan cannot close until every task completed; a later retry completes it without
+re-calling providers that already answered (idempotent by request digest).
+
+What is not protected: a provider that returns well-formed JSON with verbatim quotes
+chosen to mislead passes every check here; the checks are about form and provenance. No
+live provider has been exercised. Credentials for a live provider are the adapter's
+concern and are never recorded by the lab.
+
 ## What verify() does not detect
 
 * **Full rewrite.** An attacker who rewrites the whole chain from genesis with fresh hashes

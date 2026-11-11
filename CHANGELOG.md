@@ -154,6 +154,87 @@ Increment 1, foundation. Built in a working tree; the owner decides what to comm
 - Docs: SECURITY.md (challenges and the noise note), ARCHITECTURE.md, KNOWN_LIMITATIONS.md
   (7d), README (rules, modules, CLI, acceptance row 7 evidence text; no status moved).
 
+### Added in increment 2, round 2a (sources; same version by the owner's instruction)
+
+- `research_lab.sources`: `SourcePort`, `SourceDocument`, `SourceUnavailable` (keeps the
+  HTTP status), `SourceRefused`, `SourceFormatError` (keeps the raw response digest),
+  `SourceTooLarge`; `LocalFileSource` (explicit allowed roots, realpath confinement,
+  O_NOFOLLOW and O_NONBLOCK open, fstat regular-file check, size cap); `GitHubSource`
+  (read-only GET to https://api.github.com only, scheme and host re-checked on the final
+  URL, no redirects, timeout, size cap, strict JSON and base64, declared size and git blob
+  sha recomputed, ref resolved to a commit, injected transport, `urllib_transport`,
+  `FixtureTransport`, optional `token_env` never recorded); `BlobStore` (content-addressed,
+  write-once, atomic, verify-on-read, per tenant, size cap).
+- `Lab.record_source` (EXTERNAL or SYSTEM actor only; idempotent for identical content;
+  changed content supersedes the old source with a `change` block), `Lab.verify_sources`,
+  `SourceRecording`, `SourcesCheck`; `Lab.create` and `open` take `blob_root`.
+  `Graph.sources`, `source_by_locator`, `sources_cited_by`, `shared_sources`. Edge table gains
+  FINDING CITES SOURCE and HYPOTHESIS CITES SOURCE.
+- CLI: `add source --kind github --repo --path [--ref] [--github-fixtures DIR]` and
+  `add source --kind file --path --allow-root ...`; `--blob-root` on every command (default
+  `<db>.blobs`); `verify` output gains a `sources` key without changing existing keys.
+- `examples/source_demo.py` (offline from fixtures by default, `--live` for the network).
+- Fixtures: four real GitHub responses captured live on 2026-11-05 under
+  `tests/fixtures/github` with a SHA-256 manifest verified by a test.
+- Tests: `tests/test_sources_local.py` (8), `tests/test_sources_github.py` (31 cases),
+  `tests/test_blobs.py` (7), `tests/test_record_source.py` (12),
+  `tests/test_example_sources.py` (1); `tests/test_repo_hygiene.py` now walks subpackages
+  and adds the AI-provider and single-host guards. No pre-existing test changed.
+- Docs: README (modules, quickstart, rules, acceptance rows 4 and 5, both still partially
+  implemented), ARCHITECTURE (ports and adapters), SECURITY (sources), EXTERNAL_DEPENDENCIES
+  (GitHub endpoints, rate limits, unavailability), KNOWN_LIMITATIONS (17).
+
+### Added in increment 2, round 2b (AI port and investigation; same version by the owner's instruction)
+
+- `research_lab.ai`: `AIRequest`, `SourceInput`, `AIResponse`, `AIPort`, `AIError`,
+  `ProviderUnavailable`, `ProviderTimeout`, `ProviderRefused`, `ResponseFormatError`,
+  `build_response`; `ProviderPolicy`, `check_port_allowed`, `STACK_PROFILE`
+  (`watcher_mcu` only), `STANDALONE_DEV_PROFILE`; strict `parse_proposals` and
+  `render_proposals`; `verify_citations` (VERIFIED or UNVERIFIED with reason);
+  `ReplayAIPort` and `write_recording` (synthetic recordings only; an unlabelled recording
+  is refused); `ExtractiveBaselinePort` (deterministic, not a model); `run_conformance`
+  and `assert_conformant`. No vendor SDK; the WATCHER_MCU implementation does not exist.
+- `research_lab.investigation`: `run_investigation`, `build_request`,
+  `InvestigationSummary`, `record_pair_contradiction`; policy check before any call;
+  provider calls idempotent by request digest across a crash; request and raw response
+  preserved in the blob store; strict parse; citation verification; AI-origin proposals with
+  `ai_call` provenance; `NOT_INDEPENDENT` review records for shared-source pairs; provider
+  failure isolation; plain summary.
+- `Lab.record_contradiction`, `Lab.contradictions_of`, `Graph.contradictions_involving`;
+  `lifecycle.check_evidence_label` (an AI-origin record can never carry EXECUTED, on write
+  and on replay). Behaviour change this implies: `Lab.supersede` by an AI actor of a
+  finding labelled EXECUTED is refused unless an explicit non-EXECUTED label is given,
+  because the replacement would inherit EXECUTED; the verifier's attack4 case W2 now reads
+  "refused" instead of "ALLOWED", and the old finding is still untouched either way; `Runner.run(stop_on_failure=False)` and `Runner.failures`;
+  `TaskRun.all_checkpoints`; CLI `show` adds `ai_calls`, `citations`, `contradictions`.
+- `examples/investigation_demo.py` (offline; prints which results are synthetic and which
+  are the deterministic baseline). `docs/WATCHER_MCU_PORT.md`.
+- Tests: `tests/test_ai_port.py` (33 cases), `tests/test_investigation.py` (12),
+  `tests/test_example_investigation.py` (1). No pre-existing test changed.
+- Docs: README (modules, not implemented, rules, acceptance rows 3, 4, 5, 14, 15),
+  ARCHITECTURE (AI port, policy, flow), SECURITY (AI output is a proposal; what citation
+  verification proves), EXTERNAL_DEPENDENCIES, KNOWN_LIMITATIONS (18).
+
+### Changed after the verifier's attack7 (citation minimum; same version)
+
+- Defect (medium, fabricated sources): `verify_citations` returned VERIFIED for the
+  one-letter quote "a". Fix: a quote must be at least `MIN_QUOTE_CHARS` (20) characters and
+  `MIN_QUOTE_TOKENS` (4) words after whitespace normalisation, both module constants and
+  overridable parameters of `verify_citations`; shorter quotes are UNVERIFIED with the reason
+  "quote too short to identify a passage (minimum 20 characters and 4 words)". A VERIFIED
+  result now records `span`, the (start, end) offsets of the match in the normalised source
+  text; it appears in each hypothesis's `citations` body entries and therefore in CLI
+  `show`. `ExtractiveBaselinePort` only proposes sentences that meet the same minimum. The
+  synthetic recordings in tests and the demo needed no change: every legitimate quote in
+  them is longer than the minimum.
+- Tests: `tests/test_citation_minimum.py` (the exact attack7 cases Q3 to Q6, boundary cases
+  19 versus 20 characters and 3 versus 4 words, normalised length, span correctness,
+  overrides, span visible through the investigation and CLI). Pre-existing test edited:
+  none; `tests/test_ai_port.py::test_verify_citations_verbatim_whitespace_unknown_and_tampered`
+  still passes because its quotes exceed the minimum.
+- Docs: SECURITY.md and KNOWN_LIMITATIONS.md state what a verbatim quote proves and why
+  short quotes are refused.
+
 ### Test record for this version
 
 See the builder's report for the exact command, counts and exit status (EXECUTED on Python
