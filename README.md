@@ -14,6 +14,15 @@ used in this repository: EXECUTED (run here), INSPECTED (read), INFERRED, UNKNOW
 Core is Python 3.11+ standard library only (sqlite3 included). Apache-2.0, Copyright 2026
 William N. King.
 
+## Role within ≡TACK
+
+- **What it is.** A standalone research ledger: a tamper-evident, resumable graph of objectives, questions, hypotheses, sources, evidence, findings and decisions, with lifecycle and authority rules enforced in code.
+- **Authority matrix.** Evidence generation and verification of its own store (hash-chained SQLite log, `verify()`, bundle verification), and enforcement of its own lifecycle rules (an author cannot review or accept its own record, and no AI can record a governance disposition). It does not authenticate principals (identities are claims), define governance beyond one disposition record, or authorize production changes. AI output is always a proposal.
+- **Does not own.** Governance seats or quorum, evidence ownership (TIE, HERALD and CCC keep their roles), or any live AI call (no credential exists, so the WATCHER_MCU path has never run).
+- **Depends on.** The standard library only. WATCHER_MCU through an adapter that has only been tested offline.
+- **Depended on by.** UNKNOWN (not inspected here).
+- **Fail behavior.** Closed on chain damage (`verify()` detects edited, deleted or reordered events) and on policy violations before a provider call. Weaker: per `docs/SECURITY.md`, with no signer and no anchor, someone who can rewrite the whole file can recompute the chain and produce a log that still validates; a signer whose key they lack, or an anchor, detects that.
+
 ## What is implemented
 
 | Module | What it does now | Status |
@@ -51,7 +60,9 @@ genesis entitlement set and the authority rules, but it is not authenticated. Se
 ## Not implemented yet
 
 Any live call through the WATCHER_MCU port (the adapter `WatcherAIPort` exists here and the
-generic port exists in WATCHER_MCU on an unreviewed, unmerged branch; no credential exists,
+generic port exists in WATCHER_MCU; checked 2026-11-18, `watcher/port.py` is on WATCHER_MCU's
+main at `b46aea9`, and the branch this line used to call unreviewed and unmerged is no longer
+on GitHub; no credential exists,
 so the live path has never been executed; see `docs/WATCHER_MCU_PORT.md`), experiment
 runner and isolation, review independence descriptors beyond the shared-source check,
 governance port beyond the disposition record, CNS and TIE adapters, bundle import and
@@ -59,9 +70,10 @@ merge, authentication of principals or actors, changing entitlements after genes
 adapters other than GitHub REST and local files (academic hosts are not reachable from the
 build environment), a provider policy fixed in genesis (today the deployer supplies it).
 
-AI output is always a proposal. The two AI port implementations that exist are a replay of
-SYNTHETIC test data and a deterministic extractor that is not a model; nothing the package
-prints or records is a model's output.
+AI output is always a proposal. Three AI port implementations exist. Two are a replay of
+SYNTHETIC test data and a deterministic extractor that is not a model. The third,
+`WatcherAIPort`, has never made a live call. So nothing the package has printed or recorded
+is a model's output. (This paragraph used to say two implementations exist.)
 
 A source is an input the lab preserved: never evidence by itself, never verified knowledge.
 The blob store is a reproducibility cache; the native evidence owners (TIE, HERALD, CCC)
@@ -177,8 +189,13 @@ Each rule has positive and negative tests under `tests/`.
   pins commit and blob; re-fetching identical content adds nothing, changed content
   supersedes the old source; `verify_sources` detects a blob modified after preservation
   (`tests/test_sources_local.py`, `tests/test_sources_github.py`, `tests/test_blobs.py`,
-  `tests/test_record_source.py`). Nothing in the package names or reaches an AI provider
-  (`tests/test_repo_hygiene.py`).
+  `tests/test_record_source.py`). The actor rule is checked in `Lab.record_source` only: the
+  general `Lab.add` accepted a SOURCE record from a HUMAN actor and from an AI actor, and
+  reopening the store and `verify()` flagged neither (EXECUTED 2026-11-18). No AI provider's SDK
+  name or web address appears in the package source; that is what `tests/test_repo_hygiene.py`
+  checks. The package can still reach a provider: `WatcherAIPort` hands a request to
+  WATCHER_MCU, which holds the credential and makes the call. That path needs WATCHER_MCU
+  installed and a credential, and has never been run.
 * All AI interaction goes through `AIPort`. The investigation refuses, before any call, a
   port the policy does not allow (under `STACK_PROFILE` every port except `WatcherAIPort`,
   which is the only one of the `watcher_mcu` kind; `tests/test_watcher_port.py` runs it
@@ -212,7 +229,7 @@ names the file or test that proves the claim; nothing beyond what the tests prov
 |---|---|---|---|
 | 1 | A research objective can be created. | implemented | `Kind.OBJECTIVE`; CLI `add objective`; `tests/test_cli.py::test_full_flow_through_the_cli`, `tests/test_graph.py` |
 | 2 | An investigation can be decomposed into related research questions. | implemented | `QUESTION DECOMPOSES OBJECTIVE` and `QUESTION DECOMPOSES QUESTION` edges, `Graph.children`, branching in `tests/test_graph.py::test_traceability_reports_complete_and_partial_chains`; CLI `add question --decomposes` |
-| 3 | At least one external AI research provider can be used through WATCHER_MCU. | partially implemented: adapter and port exist and agree on the wire format in offline tests; no live model call has been made | `WatcherAIPort` (`research_lab/ai/watcher.py`) passes the conformance suite and runs an investigation under `STACK_PROFILE` over a fake of the wire contract (`tests/test_watcher_port.py`). WATCHER_MCU has a generic port (`watcher/port.py`) on branch `ccr-1d38b634-vzy1xp`, UNREVIEWED and UNMERGED. One cross-repository test, deselected by default (`-m integration`, needs the WATCHER_MCU checkout on PYTHONPATH), drives the real `watcher.port` with a fake narrator through the adapter. Missing: no external provider was called, by any test or by hand; no credential exists here; `examples/live_watcher_demo.py` has never been run live. Under `STACK_PROFILE` the replay and baseline ports are still refused before any call (`tests/test_investigation.py::test_stack_profile_refuses_before_any_call`). |
+| 3 | At least one external AI research provider can be used through WATCHER_MCU. | partially implemented: adapter and port exist and agree on the wire format in offline tests; no live model call has been made | `WatcherAIPort` (`research_lab/ai/watcher.py`) passes the conformance suite and runs an investigation under `STACK_PROFILE` over a fake of the wire contract (`tests/test_watcher_port.py`). WATCHER_MCU has a generic port (`watcher/port.py`). Checked 2026-11-18: it is on WATCHER_MCU's main (`b46aea9`), and the branch `ccr-1d38b634-vzy1xp`, which this row called UNREVIEWED and UNMERGED, is no longer on GitHub (whether the port was reviewed cannot be seen from the repositories). One cross-repository test, deselected by default (`-m integration`, needs WATCHER_MCU and CNS on PYTHONPATH; with WATCHER_MCU alone it stops at `No module named 'cns'`), drives the real `watcher.port` with a fake narrator through the adapter (EXECUTED 2026-11-18 against WATCHER_MCU `b46aea9` and CNS 4.1.0: 1 passed). Missing: no external provider was called, by any test or by hand; no credential exists here; `examples/live_watcher_demo.py` has never been run live. Under `STACK_PROFILE` the replay and baseline ports are still refused before any call (`tests/test_investigation.py::test_stack_profile_refuses_before_any_call`). |
 | 4 | At least one non-AI information source can be queried. | partially implemented | `GitHubSource` and `LocalFileSource` fetch, `Lab.record_source` preserves, and `run_investigation` feeds the preserved sources to the ports and records proposals against them (`tests/test_investigation.py`, `examples/investigation_demo.py`). Missing: only two adapters; academic hosts unreachable here; no live run of a full investigation against a live source in this round (offline fixtures). |
 | 5 | Research outputs retain their source provenance. | partially implemented | Every record version carries its origin actor, timestamp, parent version and provenance refs; source records carry locator, adapter id and version, retrieval metadata, response and content SHA-256, blob digest and for GitHub the commit and blob sha; AI-origin proposals carry an `ai_call` block (provider id and kind, model requested and reported, request and response digests, policy profile, origin tag) and per-cite verification status; `CITES` edges and `Graph.shared_sources` link outputs to sources (`tests/test_investigation.py::test_happy_path_records_proposals_with_provenance`). Missing: provenance of a live model's output (none exists). |
 | 6 | Hypotheses can be created and tracked. | partially implemented | `Kind.HYPOTHESIS`, `ANSWERS` edge, thread statuses, full history, reopen, supersede, `contradictions_of` (`tests/test_lifecycle.py`, `tests/test_graph.py`). Missing: falsification criteria, confidence and uncertainty fields, competing-hypothesis structure (increment 3). |
@@ -226,8 +243,9 @@ names the file or test that proves the claim; nothing beyond what the tests prov
 | 14 | The system can operate without one particular external AI vendor. | partially implemented at best | No vendor SDK or URL exists in the package (`tests/test_repo_hygiene.py`); one `AIPort` with two interchangeable implementations runs the same investigation (`tests/test_investigation.py`). But both implementations are non-vendor (synthetic replay, deterministic baseline) and no live external vendor has been exercised, so vendor independence is shown only for the contract, not for a real vendor. |
 | 15 | The architecture supports future internally operated execution. | partially implemented | The port contract plus one internally operated deterministic implementation (`ExtractiveBaselinePort`, not a model) run end to end under `STANDALONE_DEV_PROFILE`. No internal model, no execution port, no sandbox. |
 
-Summary: implemented 4 (items 1, 2, 8, 11); partially implemented 9 (4, 5, 6, 7, 10, 12, 13,
-14, 15); designed but unimplemented 1 (9); not yet addressed 1 (3).
+Summary: implemented 4 (items 1, 2, 8, 11); partially implemented 10 (3, 4, 5, 6, 7, 10, 12,
+13, 14, 15); designed but unimplemented 1 (9); not yet addressed 0. (This line used to count
+item 3 as not yet addressed; its row above says partially implemented.)
 
 ## Tests
 
@@ -235,6 +253,8 @@ Summary: implemented 4 (items 1, 2, 8, 11); partially implemented 9 (4, 5, 6, 7,
 was loaded from a local cache by a wrapper script; nothing was installed. Tests are
 deterministic, use injected clocks and temporary files, and make no network calls. The run
 record for this version is in `CHANGELOG.md`.
+
+EXECUTED 2026-11-15 at `c7eb567`, Python 3.13: 359 passed, 1 deselected, 0 failed, with WATCHER_MCU not installed. With WATCHER_MCU installed in the same environment, `tests/test_watcher_port.py::test_the_live_example_without_watcher_installed_exits_2` fails, because that test assumes WATCHER_MCU is absent (test fragility, recorded, not fixed). Not run: any live provider call, CI.
 
 ## Layout
 
