@@ -191,6 +191,17 @@ def check_evidence_label(origin_kind: ActorKind, label: Any) -> None:
         raise AuthorityError("an AI-origin record cannot carry the EXECUTED evidence label")
 
 
+SOURCE_ACTOR_KINDS = frozenset({ActorKind.EXTERNAL, ActorKind.SYSTEM})
+
+
+def check_source_actor(origin_kind: ActorKind) -> None:
+    """A source record is an input the lab preserved, never a claim by a person or a model, so
+    only an EXTERNAL or SYSTEM actor may write one. Checked on write and on replay, for every
+    path that creates a source record (Lab.add, Lab.supersede, Lab.record_source, a raw event)."""
+    if origin_kind not in SOURCE_ACTOR_KINDS:
+        raise AuthorityError("a source is recorded by an EXTERNAL or SYSTEM actor; it is never evidence by itself")
+
+
 def governance_required(kind: Kind, current: str, target: str) -> bool:
     """True when only a governance disposition may make this transition: reaching ACCEPTED or
     ADMITTED, withdrawing a finding that is ACCEPTED or ADMITTED, or resolving a challenge

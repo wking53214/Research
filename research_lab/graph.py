@@ -28,6 +28,7 @@ from .lifecycle import (
     check_evidence_label,
     check_governance_transition,
     check_lab_transition,
+    check_source_actor,
     initial_status,
     uses_finding_stages,
 )
@@ -381,6 +382,8 @@ class Graph:
         if record.entity_id in self.nodes:
             raise GraphError(f"entity {record.entity_id} already exists")
         check_evidence_label(record.origin.kind, record.evidence_label)
+        if record.kind is Kind.SOURCE:
+            check_source_actor(record.origin.kind)
         edges = payload.get("edges", [])
         for item in edges:
             self._check_edge(record.kind, record.entity_id, item["edge"], item["to"])

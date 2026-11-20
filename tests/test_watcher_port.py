@@ -540,8 +540,28 @@ def test_the_live_example_without_a_credential_makes_no_call_and_exits_2(tmp_pat
     assert result.stdout == "" and not marker.exists()
 
 
+HIDE_WATCHER = """\
+import sys
+
+
+class _HideWatcher:
+    def find_spec(self, name, path=None, target=None):
+        if name == "watcher" or name.startswith("watcher."):
+            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+        return None
+
+
+sys.meta_path.insert(0, _HideWatcher())
+"""
+
+
 def test_the_live_example_without_watcher_installed_exits_2(tmp_path):
-    result = run_example(["--live"], str(tmp_path))
+    # The example is run in a child process whose sitecustomize hides any installed `watcher`
+    # package, so this holds whether or not WATCHER_MCU is installed where the suite runs.
+    hide = tmp_path / "hide_watcher"
+    hide.mkdir()
+    (hide / "sitecustomize.py").write_text(HIDE_WATCHER, encoding="utf-8")
+    result = run_example(["--live"], str(hide))
     assert result.returncode == 2 and "is not installed" in result.stderr and result.stdout == ""
 
 
