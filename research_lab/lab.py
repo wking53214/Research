@@ -32,6 +32,7 @@ from .lifecycle import (
     check_evidence_label,
     check_governance_transition,
     check_lab_transition,
+    check_source_actor,
     initial_status,
     uses_challenge_statuses,
     uses_finding_stages,
@@ -42,7 +43,6 @@ from .sources.blobs import BlobStore
 from .store import Anchor, Event, EventStore, IntegrityError, Principal, Signer, VerifyResult
 
 EdgeSpec = tuple[EdgeType | str, str]
-SOURCE_ACTOR_KINDS = frozenset({ActorKind.EXTERNAL, ActorKind.SYSTEM})
 
 
 @dataclass(frozen=True)
@@ -256,6 +256,7 @@ class Lab:
     ) -> Record:
         """Add version 1 of a new entity. Its status is fixed by initial_status(kind)."""
         check_evidence_label(origin.kind, evidence_label)
+        check_source_actor(kind, origin.kind)
         edge_specs = self._edge_specs(kind, None, edges)
         record = Record.create(
             kind=kind,
@@ -370,8 +371,10 @@ class Lab:
         source record that SUPERSEDES the old one and carries a "change" block, so a
         reproducibility check can see that the input moved.
         """
-        if actor.kind not in SOURCE_ACTOR_KINDS:
-            raise RecordError("a source is recorded by an EXTERNAL or SYSTEM actor; it is never evidence by itself")
+        try:
+            check_source_actor(Kind.SOURCE, actor.kind)
+        except LifecycleError as exc:
+            raise RecordError(str(exc)) from exc
         if self.blobs is None:
             raise SourceRefused("this Lab has no blob store; open it with blob_root to record sources")
         existing = self.graph.source_by_locator(document.locator)

@@ -6,6 +6,16 @@ Semantic Versioning. The version lives in one place, `research_lab.__version__`;
 
 ## [Unreleased]
 
+### Changed (source-actor rule)
+
+- Only an EXTERNAL or SYSTEM actor may originate a source record, and the store validator now
+  enforces it (`check_source_actor` in `research_lab/lifecycle.py`, called from the graph's
+  record check). Before, only `Lab.record_source` checked, so `Lab.add`, a raw append, or a log
+  written outside the validated path could carry a source from a human or an AI. New
+  `tests/test_source_actor_rule.py` has one test per entry path.
+- `test_the_live_example_without_watcher_installed_exits_2` no longer depends on the machine:
+  it hides an installed WATCHER_MCU behind a stand-in package.
+
 ### Added (WATCHER_MCU adapter; offline only, no live call has been made)
 
 - `research_lab/ai/watcher.py`: `WatcherAIPort(call, *, clock, model, effort=None,

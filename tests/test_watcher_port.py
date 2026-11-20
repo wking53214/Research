@@ -541,6 +541,11 @@ def test_the_live_example_without_a_credential_makes_no_call_and_exits_2(tmp_pat
 
 
 def test_the_live_example_without_watcher_installed_exits_2(tmp_path):
+    """Holds whether or not WATCHER_MCU is installed in the environment running the tests: a
+    stand-in `watcher` package that cannot be imported goes first on the path and hides it."""
+    blocker = tmp_path / "watcher"
+    blocker.mkdir()
+    (blocker / "__init__.py").write_text("raise ModuleNotFoundError(\"No module named 'watcher'\")\n")
     result = run_example(["--live"], str(tmp_path))
     assert result.returncode == 2 and "is not installed" in result.stderr and result.stdout == ""
 

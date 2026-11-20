@@ -185,7 +185,7 @@ Each rule has positive and negative tests under `tests/`.
 * Sources are instruments. `LocalFileSource` reads only regular files inside explicitly
   configured roots (path traversal and symlink escapes refused); `GitHubSource` talks only to
   https://api.github.com, follows no redirect, caps sizes, reads JSON and base64 strictly and
-  recomputes the blob sha; a source record is written by an EXTERNAL or SYSTEM actor and
+  recomputes the blob sha; a source record is written by an EXTERNAL or SYSTEM actor (the store validator enforces this on every write and on replay, not only `record_source`) and
   pins commit and blob; re-fetching identical content adds nothing, changed content
   supersedes the old source; `verify_sources` detects a blob modified after preservation
   (`tests/test_sources_local.py`, `tests/test_sources_github.py`, `tests/test_blobs.py`,
@@ -254,7 +254,7 @@ was loaded from a local cache by a wrapper script; nothing was installed. Tests 
 deterministic, use injected clocks and temporary files, and make no network calls. The run
 record for this version is in `CHANGELOG.md`.
 
-EXECUTED 2026-11-15 at `c7eb567`, Python 3.13: 359 passed, 1 deselected, 0 failed, with WATCHER_MCU not installed. With WATCHER_MCU installed in the same environment, `tests/test_watcher_port.py::test_the_live_example_without_watcher_installed_exits_2` fails, because that test assumes WATCHER_MCU is absent (test fragility, recorded, not fixed). Not run: any live provider call, CI.
+EXECUTED 2026-11-19, Python 3.13: 364 passed, 1 deselected, 0 failed, both with and without WATCHER_MCU installed in the environment (the test that assumed it was absent now hides it with a stand-in package). Not run: any live provider call, CI.
 
 ## Layout
 
