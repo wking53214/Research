@@ -25,6 +25,7 @@ from .graph import (
 )
 from .lifecycle import (
     GOVERNED_STAGES,
+    SOURCE_ACTOR_KINDS,
     ChallengeStatus,
     FindingStage,
     LifecycleError,
@@ -36,13 +37,12 @@ from .lifecycle import (
     uses_challenge_statuses,
     uses_finding_stages,
 )
-from .records import Actor, ActorKind, EvidenceLabel, Kind, Record, RecordError
+from .records import Actor, EvidenceLabel, Kind, Record, RecordError
 from .sources.base import SourceDocument, SourceRefused
 from .sources.blobs import BlobStore
 from .store import Anchor, Event, EventStore, IntegrityError, Principal, Signer, VerifyResult
 
 EdgeSpec = tuple[EdgeType | str, str]
-SOURCE_ACTOR_KINDS = frozenset({ActorKind.EXTERNAL, ActorKind.SYSTEM})
 
 
 @dataclass(frozen=True)

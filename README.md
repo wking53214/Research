@@ -189,9 +189,11 @@ Each rule has positive and negative tests under `tests/`.
   pins commit and blob; re-fetching identical content adds nothing, changed content
   supersedes the old source; `verify_sources` detects a blob modified after preservation
   (`tests/test_sources_local.py`, `tests/test_sources_github.py`, `tests/test_blobs.py`,
-  `tests/test_record_source.py`). The actor rule is checked in `Lab.record_source` only: the
-  general `Lab.add` accepted a SOURCE record from a HUMAN actor and from an AI actor, and
-  reopening the store and `verify()` flagged neither (EXECUTED 2026-11-18). No AI provider's SDK
+  `tests/test_record_source.py`). The actor rule is checked in the graph's record check, which the write path and the replay path
+  share, so `Lab.add`, `Lab.supersede`, a raw record event and reopening the store all refuse a SOURCE
+  record from a HUMAN or AI actor (`tests/test_source_actor_rule.py`). Before that change the rule was
+  checked in `Lab.record_source` only, `Lab.add` accepted such a record, and reopening the store and
+  `verify()` flagged neither (EXECUTED 2026-11-18). No AI provider's SDK
   name or web address appears in the package source; that is what `tests/test_repo_hygiene.py`
   checks. The package can still reach a provider: `WatcherAIPort` hands a request to
   WATCHER_MCU, which holds the credential and makes the call. That path needs WATCHER_MCU
@@ -254,7 +256,7 @@ was loaded from a local cache by a wrapper script; nothing was installed. Tests 
 deterministic, use injected clocks and temporary files, and make no network calls. The run
 record for this version is in `CHANGELOG.md`.
 
-EXECUTED 2026-11-15 at `c7eb567`, Python 3.13: 359 passed, 1 deselected, 0 failed, with WATCHER_MCU not installed. With WATCHER_MCU installed in the same environment, `tests/test_watcher_port.py::test_the_live_example_without_watcher_installed_exits_2` fails, because that test assumes WATCHER_MCU is absent (test fragility, recorded, not fixed). Not run: any live provider call, CI.
+EXECUTED 2026-11-15 at `c7eb567`, Python 3.13: 359 passed, 1 deselected, 0 failed, with WATCHER_MCU not installed. With WATCHER_MCU installed in the same environment, `tests/test_watcher_port.py::test_the_live_example_without_watcher_installed_exits_2` failed, because that test assumed WATCHER_MCU is absent. It now runs the example in a child process that hides any installed `watcher` package. EXECUTED 2026-11-19, Python 3.13, with the source-actor change and its new tests (`tests/test_source_actor_rule.py`): 368 passed, 1 deselected, with a stand-in `watcher` package installed and again with none. Not run with the real WATCHER_MCU installed. Not run: any live provider call, CI.
 
 ## Layout
 
