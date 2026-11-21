@@ -263,8 +263,8 @@ EXECUTED 2026-11-15 at `c7eb567`, Python 3.13: 359 passed, 1 deselected, 0 faile
 ```
 research_lab/      package (stdlib only); research_lab/sources/ holds the source adapters, research_lab/ai/ the AI port
 tests/             pytest suite; tests/fixtures/github/ holds recorded GitHub responses and a manifest
-examples/          resume_demo.py, source_demo.py, investigation_demo.py
-docs/              ARCHITECTURE.md, SECURITY.md, KNOWN_LIMITATIONS.md, EXTERNAL_DEPENDENCIES.md
+examples/          resume_demo.py, source_demo.py, investigation_demo.py, live_watcher_demo.py
+docs/              ARCHITECTURE.md, SECURITY.md, KNOWN_LIMITATIONS.md, EXTERNAL_DEPENDENCIES.md, WATCHER_MCU_PORT.md
 ```
 
 ## License
