@@ -270,7 +270,8 @@ Increment 1, foundation. Built in a working tree; the owner decides what to comm
 
 ### Test record for this version
 
-See the builder's report for the exact command, counts and exit status (EXECUTED on Python
+The current run record is in the README, section Tests (command, counts, Python version). The first run for this
+version was EXECUTED on Python
 3.13.18 with pytest 9.1.1 loaded from a local cache; nothing installed). The suite was also
 run on no other Python version; 3.11 and 3.12 compatibility is INFERRED from the language
 features used, not EXECUTED.
